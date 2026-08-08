@@ -209,19 +209,37 @@ export const DEFAULTS: SettingsMap = {
   },
 };
 
-/** Reads one settings group, merged over its defaults. */
+/**
+ * Reads one settings group, merged over its defaults.
+ *
+ * A database failure falls back to the defaults rather than throwing. Two
+ * reasons: `next build` prerenders pages whose metadata reads settings, and a
+ * build must not require a live database; and at runtime a settings lookup is
+ * never important enough to take a page down — the shipped defaults are always
+ * a safe answer.
+ */
 export async function getSettings<K extends keyof SettingsMap>(
   key: K
 ): Promise<SettingsMap[K]> {
-  const row = await prisma.systemSetting.findUnique({ where: { key } });
-  if (!row) return DEFAULTS[key];
-  return { ...DEFAULTS[key], ...(row.value as object) } as SettingsMap[K];
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    if (!row) return DEFAULTS[key];
+    return { ...DEFAULTS[key], ...(row.value as object) } as SettingsMap[K];
+  } catch (err) {
+    console.error(`[settings] falling back to defaults for "${key}"`, err);
+    return DEFAULTS[key];
+  }
 }
 
 /** Reads every group at once (used by the admin settings page). */
 export async function getAllSettings(): Promise<SettingsMap> {
-  const rows = await prisma.systemSetting.findMany();
-  const byKey = new Map(rows.map((r) => [r.key, r.value as object]));
+  let byKey = new Map<string, object>();
+  try {
+    const rows = await prisma.systemSetting.findMany();
+    byKey = new Map(rows.map((r) => [r.key, r.value as object]));
+  } catch (err) {
+    console.error("[settings] falling back to defaults for all groups", err);
+  }
   const out = {} as SettingsMap;
   for (const key of Object.keys(DEFAULTS) as (keyof SettingsMap)[]) {
     // @ts-expect-error — key-wise merge is sound, TS cannot narrow the union here
