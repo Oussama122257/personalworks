@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 import { serialize, slugify } from "@/lib/utils";
+import { generateSku } from "@/lib/sku";
 
 /** SELLER-only: list own products with variants. */
 export async function GET() {
@@ -19,7 +20,8 @@ export async function GET() {
 }
 
 const variantSchema = z.object({
-  sku: z.string().min(1).max(60),
+  // Optional: generated as {StoreSlug}-{Category}-{Size}-{Color} when omitted.
+  sku: z.string().max(60).optional(),
   size: z.string().optional(),
   color: z.string().optional(),
   price: z.coerce.number().min(1),
@@ -65,6 +67,28 @@ export async function POST(req: NextRequest) {
   }
 
   const slug = `${slugify(data.name)}-${Date.now().toString(36)}`;
+
+  // Fill in any missing SKU before the write so the unique constraint holds.
+  const variants = [];
+  for (const v of data.variants) {
+    variants.push({
+      sku:
+        v.sku?.trim() ||
+        (await generateSku({
+          storeSlug: store.slug,
+          category: data.category,
+          size: v.size,
+          color: v.color,
+        })),
+      attributes: { size: v.size ?? null, color: v.color ?? null },
+      price: v.price,
+      compareAtPrice: v.compareAtPrice,
+      stockQuantity: v.stockQuantity,
+      lowStockThreshold: v.lowStockThreshold,
+      image: v.image,
+    });
+  }
+
   const product = await prisma.product.create({
     data: {
       storeId: store.id,
@@ -74,17 +98,7 @@ export async function POST(req: NextRequest) {
       category: data.category,
       images: data.images,
       isPublished: data.isPublished,
-      variants: {
-        create: data.variants.map((v) => ({
-          sku: v.sku,
-          attributes: { size: v.size ?? null, color: v.color ?? null },
-          price: v.price,
-          compareAtPrice: v.compareAtPrice,
-          stockQuantity: v.stockQuantity,
-          lowStockThreshold: v.lowStockThreshold,
-          image: v.image,
-        })),
-      },
+      variants: { create: variants },
     },
     include: { variants: true },
   });

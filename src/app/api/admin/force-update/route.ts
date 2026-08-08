@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
+import { recordAudit } from "@/lib/audit";
 import { serialize } from "@/lib/utils";
+
+/**
+ * God Mode: the admin edits any product or order directly, bypassing the
+ * seller-ownership checks every other route enforces. A `reason` is mandatory
+ * and lands in the audit log alongside before/after snapshots.
+ */
 
 const orderUpdateSchema = z.object({
   entity: z.literal("order"),
@@ -22,15 +29,15 @@ const productUpdateSchema = z.object({
   reason: z.string().min(3).max(300),
   data: z.object({
     name: z.string().min(2).optional(),
-    isPublished: z.boolean().optional(),
     category: z.string().min(2).optional(),
+    isPublished: z.boolean().optional(),
+    price: z.coerce.number().min(1).optional(),
+    stockQuantity: z.coerce.number().int().min(0).optional(),
   }),
 });
 
 const schema = z.discriminatedUnion("entity", [orderUpdateSchema, productUpdateSchema]);
 
-/** ADMIN-only "god mode": force-edit an order or product. Reason is mandatory
- *  and every change is written to the audit log. */
 export async function POST(req: NextRequest) {
   const { session, error } = await requireRole(["ADMIN"]);
   if (error) return error;
@@ -39,59 +46,73 @@ export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid payload (a reason is mandatory for god-mode edits)", details: parsed.error.flatten() },
+      {
+        error: "Invalid payload — a reason is mandatory for God Mode edits",
+        details: parsed.error.flatten(),
+      },
       { status: 400 }
     );
   }
   const { entity, id, data, reason } = parsed.data;
+  const actor = { id: session.user.id, role: "ADMIN" };
 
-  const result = await prisma.$transaction(async (tx) => {
-    if (entity === "order") {
-      const before = await tx.order.findUnique({ where: { id } });
-      if (!before) return null;
-      const after = await tx.order.update({ where: { id }, data });
-      await tx.auditLog.create({
+  if (entity === "order") {
+    const before = await prisma.order.findUnique({ where: { id } });
+    if (!before) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    const after = await prisma.order.update({ where: { id }, data });
+    await recordAudit({
+      actor,
+      action: "STATUS_CHANGE",
+      entity: "ORDER",
+      entityId: id,
+      oldState: { status: before.status, totalAmount: before.totalAmount },
+      newState: { status: after.status, totalAmount: after.totalAmount },
+      reason,
+      req,
+    });
+    return NextResponse.json({ success: true, order: serialize(after) });
+  }
+
+  // Product edits may carry variant-level price/stock overrides.
+  const { price, stockQuantity, ...productFields } = data;
+  const before = await prisma.product.findUnique({
+    where: { id },
+    include: { variants: true },
+  });
+  if (!before) {
+    return NextResponse.json({ error: "Product not found" }, { status: 404 });
+  }
+
+  const after = await prisma.$transaction(async (tx) => {
+    const updated = await tx.product.update({
+      where: { id },
+      data: productFields,
+      include: { variants: true },
+    });
+    if (price !== undefined || stockQuantity !== undefined) {
+      await tx.productVariant.updateMany({
+        where: { productId: id },
         data: {
-          userId: session.user.id,
-          userRole: "ADMIN",
-          action: "STATUS_CHANGE",
-          entity: "ORDER",
-          entityId: id,
-          oldState: { status: before.status, totalAmount: before.totalAmount },
-          newState: { status: after.status, totalAmount: after.totalAmount },
-          reason,
+          ...(price !== undefined ? { price } : {}),
+          ...(stockQuantity !== undefined ? { stockQuantity } : {}),
         },
       });
-      return after;
     }
-    const before = await tx.product.findUnique({ where: { id } });
-    if (!before) return null;
-    const after = await tx.product.update({ where: { id }, data });
-    await tx.auditLog.create({
-      data: {
-        userId: session.user.id,
-        userRole: "ADMIN",
-        action: "UPDATE",
-        entity: "PRODUCT",
-        entityId: id,
-        oldState: {
-          name: before.name,
-          isPublished: before.isPublished,
-          category: before.category,
-        },
-        newState: {
-          name: after.name,
-          isPublished: after.isPublished,
-          category: after.category,
-        },
-        reason,
-      },
-    });
-    return after;
+    return tx.product.findUnique({ where: { id }, include: { variants: true } }) ?? updated;
   });
 
-  if (!result) {
-    return NextResponse.json({ error: `${entity} not found` }, { status: 404 });
-  }
-  return NextResponse.json({ success: true, [entity]: serialize(result) });
+  await recordAudit({
+    actor,
+    action: "UPDATE",
+    entity: "PRODUCT",
+    entityId: id,
+    oldState: serialize(before),
+    newState: serialize(after),
+    reason,
+    req,
+  });
+
+  return NextResponse.json({ success: true, product: serialize(after) });
 }

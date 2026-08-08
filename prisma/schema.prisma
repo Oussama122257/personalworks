@@ -9,20 +9,20 @@ datasource db {
 
 // ------------------- CORE USERS & ROLES -------------------
 model Profile {
-  id            String    @id @default(cuid())
-  userId        String    @unique // For NextAuth integration
-  email         String?   @unique
-  phone         String    @unique
+  id                 String                   @id @default(cuid())
+  userId             String                   @unique // For NextAuth integration
+  email              String?                  @unique
+  phone              String                   @unique
   // NOTE (fix): required for credentials login — the provided schema had no
   // password storage, yet the seed hashes one. Nullable for OAuth-only users.
-  passwordHash  String?
-  fullName      String
-  role          Role      @default(BUYER)
-  wilayaCode    Int?      // For Wilaya Managers
-  isVerified    Boolean   @default(false)
-  avatarUrl     String?
-  store         Store?    // One-to-one for Sellers
-  orders        Order[]   @relation("BuyerOrders")
+  passwordHash       String?
+  fullName           String
+  role               Role                     @default(BUYER)
+  wilayaCode         Int? // For Wilaya Managers
+  isVerified         Boolean                  @default(false)
+  avatarUrl          String?
+  store              Store? // One-to-one for Sellers
+  orders             Order[]                  @relation("BuyerOrders")
   // NOTE (fix): back-relations required by Prisma for AuditLog.user,
   // Review.buyer, LoyaltyPoints.buyer, PointsTransaction.buyer and
   // DeliveryLocationUpdate.agent.
@@ -31,18 +31,21 @@ model Profile {
   loyaltyPoints      LoyaltyPoints?
   pointsTransactions PointsTransaction[]
   deliveryUpdates    DeliveryLocationUpdate[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  ticketsOpened      SupportTicket[]          @relation("TicketBuyer")
+  ticketsAssigned    SupportTicket[]          @relation("TicketAssignee")
+  ticketMessages     TicketMessage[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
   @@map("profiles")
 }
 
 // ------------------- GEOGRAPHY (ALGERIA) -------------------
 model Wilaya {
-  code          Int       @id
+  code          Int            @id
   name          String
   nameAr        String?
-  isActive      Boolean   @default(true)
+  isActive      Boolean        @default(true)
   communes      Commune[]
   stores        Store[]
   shippingRates ShippingRate[]
@@ -52,178 +55,190 @@ model Wilaya {
 }
 
 model Commune {
-  id            Int       @id @default(autoincrement())
-  name          String
-  wilayaCode    Int
-  wilaya        Wilaya    @relation(fields: [wilayaCode], references: [code])
-  isActive      Boolean   @default(true)
+  id         Int     @id @default(autoincrement())
+  name       String
+  wilayaCode Int
+  wilaya     Wilaya  @relation(fields: [wilayaCode], references: [code])
+  isActive   Boolean @default(true)
 
   @@map("communes")
 }
 
 // ------------------- STORES & VENDORS -------------------
 model Store {
-  id            String    @id @default(cuid())
-  userId        String    @unique
-  user          Profile   @relation(fields: [userId], references: [id])
-  name          String
-  slug          String    @unique
-  description   String?
-  logoUrl       String?
-  wilayaCode    Int
-  wilaya        Wilaya    @relation(fields: [wilayaCode], references: [code])
-  address       String?
-  commissionRate Float    @default(10.0)
-  isActive      Boolean   @default(false)
-  approvedBy    String?   // Profile ID of Wilaya Manager who approved
-  balance       Float     @default(0.0)
+  id                   String        @id @default(cuid())
+  userId               String        @unique
+  user                 Profile       @relation(fields: [userId], references: [id])
+  name                 String
+  slug                 String        @unique
+  description          String?
+  logoUrl              String?
+  wilayaCode           Int
+  wilaya               Wilaya        @relation(fields: [wilayaCode], references: [code])
+  address              String?
+  commissionRate       Float         @default(10.0)
+  isActive             Boolean       @default(false)
+  approvedBy           String? // Profile ID of Wilaya Manager who approved
+  rejectionReason      String? // Reason shown to the seller when rejected
+  rib                  String? // Bank account (RIB) for payout transfers
+  balance              Float         @default(0.0)
   // Custom Delivery API Settings
-  deliveryProviderType String @default("ZEEM_DEFAULT")
-  customApiKey  String?   // Will be encrypted in production
-  customApiSecret String?
-  customAccountNumber String?
+  deliveryProviderType String        @default("ZEEM_DEFAULT")
+  customApiKey         String? // Will be encrypted in production
+  customApiSecret      String?
+  customAccountNumber  String?
   // Relations
-  products      Product[]
-  shipments     Shipment[]
-  transactions  Transaction[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  products             Product[]
+  shipments            Shipment[]
+  transactions         Transaction[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@map("stores")
 }
 
 // ------------------- PRODUCTS & VARIANTS (SKU) -------------------
 model Product {
-  id            String    @id @default(cuid())
-  storeId       String
-  store         Store     @relation(fields: [storeId], references: [id])
-  name          String
-  slug          String    @unique
-  description   String?
-  category      String?
-  images        String[]  // Array of Cloudinary/S3 URLs
-  isPublished   Boolean   @default(false)
-  variants      ProductVariant[]
-  reviews       Review[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String           @id @default(cuid())
+  storeId     String
+  store       Store            @relation(fields: [storeId], references: [id])
+  name        String
+  slug        String           @unique
+  description String?
+  category    String?
+  images      String[] // Array of Cloudinary/S3 URLs
+  isPublished Boolean          @default(false)
+  variants    ProductVariant[]
+  reviews     Review[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   @@map("products")
 }
 
 model ProductVariant {
-  id            String    @id @default(cuid())
-  productId     String
-  product       Product   @relation(fields: [productId], references: [id])
-  sku           String    @unique
-  barcode       String?
-  attributes    Json      // e.g., { "size": "M", "color": "Rouge" }
-  price         Float
-  compareAtPrice Float?
-  stockQuantity Int       @default(0)
-  reservedStock Int       @default(0)
-  lowStockThreshold Int   @default(5)
-  image         String?   // Variant-specific image
-  orderItems    OrderItem[]
-  createdAt     DateTime  @default(now())
+  id                String      @id @default(cuid())
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id])
+  sku               String      @unique
+  barcode           String?
+  attributes        Json // e.g., { "size": "M", "color": "Rouge" }
+  price             Float
+  compareAtPrice    Float?
+  stockQuantity     Int         @default(0)
+  reservedStock     Int         @default(0)
+  lowStockThreshold Int         @default(5)
+  image             String? // Variant-specific image
+  orderItems        OrderItem[]
+  createdAt         DateTime    @default(now())
 
   @@map("product_variants")
 }
 
 // ------------------- ORDERS & SHIPMENTS (COD) -------------------
 model Order {
-  id            String    @id @default(cuid())
-  reference     String    @unique
-  buyerId       String?   // NULL for guest checkout (Fast Checkout)
-  buyer         Profile?  @relation("BuyerOrders", fields: [buyerId], references: [id])
-  guestName     String?
-  guestPhone    String?
-  totalAmount   Float
-  platformFee   Float     @default(0) // Total 10% commission
-  ownerShare    Float     @default(0) // 8% to SaaS Owner
-  managerShare  Float     @default(0) // 2% to Wilaya Manager
-  status        OrderStatus @default(PENDING)
-  checkoutType  CheckoutType // FAST or CART
-  wilayaCode    Int?
+  id             String          @id @default(cuid())
+  reference      String          @unique
+  buyerId        String? // NULL for guest checkout (Fast Checkout)
+  buyer          Profile?        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  guestName      String?
+  guestPhone     String?
+  totalAmount    Float
+  platformFee    Float           @default(0) // Total 10% commission
+  ownerShare     Float           @default(0) // 8% to SaaS Owner
+  managerShare   Float           @default(0) // 2% to Wilaya Manager
+  status         OrderStatus     @default(PENDING)
+  checkoutType   CheckoutType // FAST or CART
+  // Loyalty redemption applied at checkout
+  pointsRedeemed Int             @default(0)
+  discountAmount Float           @default(0)
+  wilayaCode     Int?
   // NOTE (fix): relation field required by Prisma for Wilaya.orders
-  wilaya        Wilaya?   @relation(fields: [wilayaCode], references: [code])
-  address       String
-  lat           Float?    // For live tracking
-  lng           Float?
-  shipments     Shipment[]
-  items         OrderItem[]
-  transactions  Transaction[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  wilaya         Wilaya?         @relation(fields: [wilayaCode], references: [code])
+  address        String
+  lat            Float? // For live tracking
+  lng            Float?
+  shipments      Shipment[]
+  items          OrderItem[]
+  transactions   Transaction[]
+  tickets        SupportTicket[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
+  @@index([createdAt])
+  @@index([status])
   @@map("orders")
 }
 
 model OrderItem {
-  id            String    @id @default(cuid())
-  orderId       String
-  order         Order     @relation(fields: [orderId], references: [id])
-  variantId     String
-  variant       ProductVariant @relation(fields: [variantId], references: [id])
-  quantity      Int
-  price         Float     // Snapshot at purchase time
-  sellerId      String    // Denormalized for speed
+  id        String         @id @default(cuid())
+  orderId   String
+  order     Order          @relation(fields: [orderId], references: [id])
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  quantity  Int
+  price     Float // Snapshot at purchase time
+  sellerId  String // Denormalized for speed
 
   @@map("order_items")
 }
 
 model Shipment {
-  id            String    @id @default(cuid())
-  orderId       String
-  order         Order     @relation(fields: [orderId], references: [id])
-  sellerId      String
-  seller        Store     @relation(fields: [sellerId], references: [id])
-  deliveryCompany String   @default("YALIDINE")
-  trackingNumber String?
-  waybillUrl    String?
-  shippingFee   Float     @default(0)
-  codAmount     Float
+  id              String                   @id @default(cuid())
+  orderId         String
+  order           Order                    @relation(fields: [orderId], references: [id])
+  sellerId        String
+  seller          Store                    @relation(fields: [sellerId], references: [id])
+  deliveryCompany String                   @default("YALIDINE")
+  trackingNumber  String?
+  waybillUrl      String?
+  shippingFee     Float                    @default(0)
+  codAmount       Float
   actualCollected Float?
-  status        ShipmentStatus @default(PENDING_PICKUP)
-  failureReason String?    // WRONG_ADDRESS, BUYER_NOT_HOME, etc.
-  agentId       String?
-  agentNote     String?
-  deliveredAt   DateTime?
+  status          ShipmentStatus           @default(PENDING_PICKUP)
+  failureReason   String? // WRONG_ADDRESS, BUYER_NOT_HOME, etc.
+  agentId         String?
+  agentNote       String?
+  deliveredAt     DateTime?
+  // Retry policy: 3 failed attempts sends the parcel back to the seller.
+  attemptCount    Int                      @default(0)
+  scheduledFor    DateTime?
   locationUpdates DeliveryLocationUpdate[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  tickets         SupportTicket[]
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
 
   @@map("shipments")
 }
 
 // ------------------- FINANCE & TRANSACTIONS -------------------
 model Transaction {
-  id            String    @id @default(cuid())
-  sellerId      String
-  seller        Store     @relation(fields: [sellerId], references: [id])
-  orderId       String?
-  order         Order?    @relation(fields: [orderId], references: [id])
-  amount        Float
-  type          TransType // COMMISSION_OWNER, COMMISSION_MANAGER, PAYOUT, REFUND
-  status        TransStatus @default(PENDING)
-  description   String?
-  dueDate       DateTime?
-  paidAt        DateTime?
-  createdAt     DateTime  @default(now())
+  id          String      @id @default(cuid())
+  sellerId    String
+  seller      Store       @relation(fields: [sellerId], references: [id])
+  orderId     String?
+  order       Order?      @relation(fields: [orderId], references: [id])
+  amount      Float
+  type        TransType // COMMISSION_OWNER, COMMISSION_MANAGER, PAYOUT, REFUND
+  status      TransStatus @default(PENDING)
+  description String?
+  dueDate     DateTime?
+  paidAt      DateTime?
+  createdAt   DateTime    @default(now())
 
   @@map("transactions")
 }
 
 // ------------------- SHIPPING RATES (MATRIX) -------------------
 model ShippingRate {
-  id            String    @id @default(cuid())
+  id            String  @id @default(cuid())
   wilayaCode    Int
-  wilaya        Wilaya    @relation(fields: [wilayaCode], references: [code])
-  courierType   String    // YALIDINE, ZR_EXPRESS, POSTE
-  basePrice     Float     @default(250.0) // Up to 1kg
-  pricePerKg    Float     @default(50.0)
-  estimatedDays String    // "2-3"
-  isActive      Boolean   @default(true)
+  wilaya        Wilaya  @relation(fields: [wilayaCode], references: [code])
+  courierType   String // YALIDINE, ZR_EXPRESS, POSTE
+  basePrice     Float   @default(250.0) // Up to 1kg
+  pricePerKg    Float   @default(50.0)
+  estimatedDays String // "2-3"
+  isActive      Boolean @default(true)
 
   @@unique([wilayaCode, courierType])
   @@map("shipping_rates")
@@ -231,51 +246,51 @@ model ShippingRate {
 
 // ------------------- LOYALTY POINTS -------------------
 model LoyaltyPoints {
-  id            String    @id @default(cuid())
+  id               String   @id @default(cuid())
   // NOTE (fix): @unique required — completeDelivery upserts on buyerId.
-  buyerId       String    @unique
-  buyer         Profile   @relation(fields: [buyerId], references: [id])
-  balance       Int       @default(0)
-  lifetimeEarned Int      @default(0)
-  lifetimeRedeemed Int    @default(0)
+  buyerId          String   @unique
+  buyer            Profile  @relation(fields: [buyerId], references: [id])
+  balance          Int      @default(0)
+  lifetimeEarned   Int      @default(0)
+  lifetimeRedeemed Int      @default(0)
   // NOTE (fix): the provided `transactions PointsTransaction[]` field was
   // removed — PointsTransaction relates to Profile, not LoyaltyPoints, so the
   // back-relation cannot exist. Points history is read via Profile instead.
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@map("loyalty_points")
 }
 
 model PointsTransaction {
-  id            String    @id @default(cuid())
-  buyerId       String
-  buyer         Profile   @relation(fields: [buyerId], references: [id])
-  orderId       String?
-  amount        Int       // Positive = Earned, Negative = Redeemed
-  type          PointsType // EARNED_PURCHASE, EARNED_REVIEW, REDEEMED_DISCOUNT, EXPIRED
-  description   String?
-  expiresAt     DateTime?
-  createdAt     DateTime  @default(now())
+  id          String     @id @default(cuid())
+  buyerId     String
+  buyer       Profile    @relation(fields: [buyerId], references: [id])
+  orderId     String?
+  amount      Int // Positive = Earned, Negative = Redeemed
+  type        PointsType // EARNED_PURCHASE, EARNED_REVIEW, REDEEMED_DISCOUNT, EXPIRED
+  description String?
+  expiresAt   DateTime?
+  createdAt   DateTime   @default(now())
 
   @@map("points_transactions")
 }
 
 // ------------------- AUDIT & LOGGING -------------------
 model AuditLog {
-  id            String    @id @default(cuid())
-  userId        String
-  user          Profile   @relation(fields: [userId], references: [id])
-  userRole      Role
-  action        String    // CREATE, UPDATE, DELETE, STATUS_CHANGE, LOGIN
-  entity        String    // STORE, PRODUCT, ORDER, USER, SETTINGS, FINANCE
-  entityId      String
-  oldState      Json?
-  newState      Json?
-  reason        String?   // Mandatory for God Mode overrides
-  ipAddress     String?
-  userAgent     String?
-  createdAt     DateTime  @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  user      Profile  @relation(fields: [userId], references: [id])
+  userRole  Role
+  action    String // CREATE, UPDATE, DELETE, STATUS_CHANGE, LOGIN
+  entity    String // STORE, PRODUCT, ORDER, USER, SETTINGS, FINANCE
+  entityId  String
+  oldState  Json?
+  newState  Json?
+  reason    String? // Mandatory for God Mode overrides
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([entity, entityId])
@@ -285,35 +300,35 @@ model AuditLog {
 
 // ------------------- REVIEWS -------------------
 model Review {
-  id            String    @id @default(cuid())
-  productId     String
-  product       Product   @relation(fields: [productId], references: [id])
-  buyerId       String
-  buyer         Profile   @relation(fields: [buyerId], references: [id])
-  orderId       String?
-  rating        Int
-  title         String?
-  comment       String?
-  images        String[]
-  isVerified    Boolean   @default(false)
-  status        ReviewStatus @default(PENDING)
-  sellerReply   String?
-  createdAt     DateTime  @default(now())
+  id          String       @id @default(cuid())
+  productId   String
+  product     Product      @relation(fields: [productId], references: [id])
+  buyerId     String
+  buyer       Profile      @relation(fields: [buyerId], references: [id])
+  orderId     String?
+  rating      Int
+  title       String?
+  comment     String?
+  images      String[]
+  isVerified  Boolean      @default(false)
+  status      ReviewStatus @default(PENDING)
+  sellerReply String?
+  createdAt   DateTime     @default(now())
 
   @@map("reviews")
 }
 
 // ------------------- DELIVERY GPS TRACKING -------------------
 model DeliveryLocationUpdate {
-  id            String    @id @default(cuid())
-  shipmentId    String
-  shipment      Shipment  @relation(fields: [shipmentId], references: [id])
-  lat           Float
-  lng           Float
-  accuracy      Int?
-  agentId       String
-  agent         Profile   @relation(fields: [agentId], references: [id])
-  createdAt     DateTime  @default(now())
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id])
+  lat        Float
+  lng        Float
+  accuracy   Int?
+  agentId    String
+  agent      Profile  @relation(fields: [agentId], references: [id])
+  createdAt  DateTime @default(now())
 
   @@index([shipmentId])
   @@index([createdAt])
@@ -327,8 +342,39 @@ enum Role {
   SELLER
   ACCOUNTANT
   ERP_MANAGER
+  // NOTE (added): the 9-actor spec needs roles for the logistics manager and
+  // the support agent; the original enum had no value for either.
+  LOGISTICS_MANAGER
+  SUPPORT
   AGENT
   BUYER
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  CLOSED
+}
+
+enum MessageAuthorType {
+  BUYER
+  AGENT
+  SYSTEM
+}
+
+enum AttributeType {
+  SIZE
+  COLOR
+  FABRIC
+  OTHER
 }
 
 enum OrderStatus {
@@ -381,4 +427,97 @@ enum ReviewStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+// ------------------- ERP: CATEGORY TREE & ATTRIBUTES -------------------
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  slug      String     @unique
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  position  Int        @default(0)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Attribute {
+  id        String           @id @default(cuid())
+  name      String
+  type      AttributeType    @default(OTHER)
+  values    AttributeValue[]
+  isActive  Boolean          @default(true)
+  createdAt DateTime         @default(now())
+
+  @@unique([name, type])
+  @@map("attributes")
+}
+
+model AttributeValue {
+  id          String    @id @default(cuid())
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value       String
+  position    Int       @default(0)
+
+  @@unique([attributeId, value])
+  @@map("attribute_values")
+}
+
+// ------------------- LOGISTICS: COURIER HEALTH -------------------
+model CourierHealth {
+  id            String    @id @default(cuid())
+  courierType   String    @unique // YALIDINE, ZR_EXPRESS, POSTE
+  isOnline      Boolean   @default(true)
+  lastCheckedAt DateTime?
+  lastError     String?
+  latencyMs     Int?
+
+  @@map("courier_health")
+}
+
+// ------------------- SUPPORT: TICKETS -------------------
+model SupportTicket {
+  id           String          @id @default(cuid())
+  reference    String          @unique
+  subject      String
+  priority     TicketPriority  @default(NORMAL)
+  status       TicketStatus    @default(OPEN)
+  buyerId      String?
+  buyer        Profile?        @relation("TicketBuyer", fields: [buyerId], references: [id])
+  contactName  String?
+  contactPhone String?
+  orderId      String?
+  order        Order?          @relation(fields: [orderId], references: [id])
+  shipmentId   String?
+  shipment     Shipment?       @relation(fields: [shipmentId], references: [id])
+  assignedToId String?
+  assignedTo   Profile?        @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  messages     TicketMessage[]
+  escalatedAt  DateTime?
+  resolvedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([status, priority])
+  @@index([createdAt])
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id         String            @id @default(cuid())
+  ticketId   String
+  ticket     SupportTicket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     Profile?          @relation(fields: [authorId], references: [id])
+  authorType MessageAuthorType @default(AGENT)
+  body       String
+  createdAt  DateTime          @default(now())
+
+  @@index([ticketId])
+  @@map("ticket_messages")
 }
