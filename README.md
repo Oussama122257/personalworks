@@ -75,6 +75,50 @@ runs in a single Prisma transaction:
 4. credits the store balance;
 5. awards the buyer 1 loyalty point per 100 DZD (registered buyers only).
 
+## The nine actors
+
+| Actor | Route | What it does |
+|---|---|---|
+| Super Admin | `/dashboard/admin` | Pulse KPIs (GMV, ventes, vendeurs, refus COD), 30-day Revenue-vs-Orders chart, top-10 store and product leaderboards, per-wilaya density map, audit feed, God Mode overrides |
+| Wilaya Manager | `/dashboard/manager` | Regional KPIs, seller approval queue (approve/reject with reason + notification), commune heatmap, 2% commission tracker with payout request |
+| Seller | `/dashboard/seller` | 30-day KPIs, critical-stock alert bar, fulfillment queue, product wizard (auto-SKU + AI description), encrypted courier keys with Test Connection, finance tab |
+| Buyer | `/`, `/profile`, `/track/[ref]` | Storefront, fast checkout, multi-store cart with loyalty redemption, live map tracking with masked agent number, order history and points ledger |
+| Accountant | `/dashboard/accountant` | Treasury (COD, commissions, 19% VAT, payables), COD reconciliation with >0.5% variance flags, date-ranged payout CSV, per-seller PDF invoices |
+| ERP Manager | `/dashboard/erp` | Transactional CSV import/export, drag-and-drop category tree, attribute dictionary |
+| Logistics Manager | `/dashboard/logistics` | Courier status board, 58×3 shipping matrix with bulk row apply, agent performance, smart assignment |
+| Delivery Agent | `/dashboard/agent` | Mobile-first PWA: today's takings, pickups and deliveries, GPS ping toggle, COD collection, 3-attempt failure policy |
+| Support Agent | `/dashboard/support` | Ticket queue, right-side detail drawer with order context, threaded replies with quick replies, escalation sweep |
+
+**Roles added to the schema:** the original `Role` enum had seven values for
+nine actors, so `LOGISTICS_MANAGER` and `SUPPORT` were added — without them
+those two actors had no way to sign in.
+
+## Scheduled jobs
+
+Next.js ships no scheduler, so two endpoints need an external trigger (Vercel
+Cron, GitHub Actions, or any cron hitting the URL). Both also run manually from
+their dashboard, and both accept the `x-cron-secret` header matching
+`CRON_SECRET`:
+
+- `POST /api/logistics/courier-health` — every ~5 min; pings each courier API
+  and deactivates shipping rates for one that is down.
+- `POST /api/support/escalate` — hourly; flags tickets left OPEN beyond
+  `SUPPORT_ESCALATION_HOURS` (24 by default), writes an audit entry and
+  notifies admins.
+
+## Integrations that degrade gracefully
+
+None of these are required to run the app; each reports its real state rather
+than faking success:
+
+| Integration | Without configuration |
+|---|---|
+| Email / SMS (`EMAIL_*`, `SMS_*`) | Message is logged server-side and reported as **undelivered** |
+| OpenAI (`OPENAI_API_KEY`) | AI description falls back to a template; the response says `generated: false` |
+| Courier APIs (`*_API_URL`) | Test Connection and health checks report **not configured**, never "connected" |
+| Pusher (`PUSHER_*`) | Realtime broadcasts are no-ops; dashboards still refresh on their own |
+| Meta Pixel (`META_*`) | Purchase events are logged, not sent |
+
 ## API routes
 
 | Route | Access | Purpose |

@@ -3,29 +3,42 @@ import { z } from "zod";
 import { requireRole } from "@/lib/api-auth";
 import { failDelivery, FulfillmentError } from "@/lib/fulfillment";
 
-const failSchema = z.object({
-  reason: z.string().min(2).max(200),
+const FAILURE_REASONS = [
+  "BUYER_NOT_HOME",
+  "WRONG_ADDRESS",
+  "BUYER_UNREACHABLE",
+  "ORDER_REFUSED",
+  "PACKAGE_DAMAGED",
+  "OTHER",
+] as const;
+
+const schema = z.object({
+  shipmentId: z.string().min(1),
+  reason: z.enum(FAILURE_REASONS),
   note: z.string().max(300).optional(),
 });
 
-/** AGENT-only: mark a delivery attempt as failed with a reason. */
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+/**
+ * AGENT: record a failed delivery attempt.
+ * Attempts 1-2 reschedule for the next day; the third returns the parcel and
+ * notifies the seller.
+ */
+export async function POST(req: NextRequest) {
   const { session, error } = await requireRole(["AGENT"]);
   if (error) return error;
 
-  const { id } = await params;
   const body = await req.json().catch(() => null);
-  const parsed = failSchema.safeParse(body);
+  const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid payload", details: parsed.error.flatten() },
+      { status: 400 }
+    );
   }
 
   try {
     const result = await failDelivery({
-      shipmentId: id,
+      shipmentId: parsed.data.shipmentId,
       agentId: session.user.id,
       reason: parsed.data.reason,
       note: parsed.data.note,
@@ -35,7 +48,7 @@ export async function PUT(
     if (err instanceof FulfillmentError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
-    console.error("[shipments/fail] failed", err);
+    console.error("[agent/fail] failed", err);
     return NextResponse.json({ error: "Failed to update shipment" }, { status: 500 });
   }
 }

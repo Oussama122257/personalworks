@@ -14,6 +14,8 @@ const ROLE_LABEL: Record<string, string> = {
   ACCOUNTANT: "Comptable",
   AGENT: "Livreur",
   ERP_MANAGER: "Manager ERP",
+  LOGISTICS_MANAGER: "Manager logistique",
+  SUPPORT: "Support client",
   BUYER: "Acheteur",
 };
 

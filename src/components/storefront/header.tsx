@@ -33,6 +33,9 @@ export function StorefrontHeader({
     WILAYA_MANAGER: "/dashboard/manager",
     ACCOUNTANT: "/dashboard/accountant",
     AGENT: "/dashboard/agent",
+    ERP_MANAGER: "/dashboard/erp",
+    LOGISTICS_MANAGER: "/dashboard/logistics",
+    SUPPORT: "/dashboard/support",
   };
 
   return (

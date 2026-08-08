@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { generateReference, round2, serialize } from "@/lib/utils";
 import { trackServerEvent } from "@/lib/pixel";
 import { broadcast } from "@/lib/realtime";
+import { pickAgentForWilaya } from "@/lib/assignment";
 
 const fastOrderSchema = z.object({
   variantId: z.string().min(1),
@@ -124,13 +125,27 @@ export async function POST(req: NextRequest) {
       });
     });
 
+    // Route the parcel to the least-loaded agent covering this wilaya.
+    try {
+      const agentId = await pickAgentForWilaya(input.wilayaCode);
+      if (agentId) {
+        await prisma.shipment.updateMany({
+          where: { orderId: order.id, agentId: null },
+          data: { agentId },
+        });
+      }
+    } catch (err) {
+      console.error("[orders/fast] agent assignment failed", err);
+    }
+
     // Post-commit side effects (never block or fail the order).
     await trackServerEvent("Purchase", {
       phone: input.phone,
       value: totalAmount,
       currency: "DZD",
       contentIds: [variant.product.id],
-      eventId: order.id,
+      // Reference is the dedup key shared with the browser-side pixel.
+      eventId: order.reference,
     });
     const payload = serialize({
       id: order.id,

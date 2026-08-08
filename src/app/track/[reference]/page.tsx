@@ -12,6 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { formatDZD } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { LiveTracking } from "@/components/storefront/live-tracking";
 
 export const dynamic = "force-dynamic";
 
@@ -130,6 +131,8 @@ export default async function TrackPage({
           </ol>
         </CardContent>
       </Card>
+
+      <LiveTracking reference={order.reference} />
 
       {shipment && shipment.locationUpdates.length > 0 && (
         <Card className="mt-4">

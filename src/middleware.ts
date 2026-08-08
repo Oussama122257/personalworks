@@ -11,7 +11,9 @@ const ROLE_HOME: Record<string, string> = {
   WILAYA_MANAGER: "/dashboard/manager",
   ACCOUNTANT: "/dashboard/accountant",
   AGENT: "/dashboard/agent",
-  ERP_MANAGER: "/",
+  ERP_MANAGER: "/dashboard/erp",
+  LOGISTICS_MANAGER: "/dashboard/logistics",
+  SUPPORT: "/dashboard/support",
   BUYER: "/",
 };
 
@@ -21,6 +23,9 @@ const SEGMENT_ROLE: Record<string, string> = {
   manager: "WILAYA_MANAGER",
   accountant: "ACCOUNTANT",
   agent: "AGENT",
+  erp: "ERP_MANAGER",
+  logistics: "LOGISTICS_MANAGER",
+  support: "SUPPORT",
 };
 
 export default auth((req) => {

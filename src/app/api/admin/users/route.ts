@@ -10,7 +10,14 @@ const staffSchema = z.object({
   email: z.string().email(),
   phone: z.string().min(8).max(20),
   password: z.string().min(8),
-  role: z.enum(["WILAYA_MANAGER", "ACCOUNTANT", "AGENT", "ERP_MANAGER"]),
+  role: z.enum([
+    "WILAYA_MANAGER",
+    "ACCOUNTANT",
+    "AGENT",
+    "ERP_MANAGER",
+    "LOGISTICS_MANAGER",
+    "SUPPORT",
+  ]),
   wilayaCode: z.coerce.number().int().min(1).max(58).optional(),
 });
 
