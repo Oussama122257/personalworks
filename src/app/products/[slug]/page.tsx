@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { serialize } from "@/lib/utils";
-import { ProductDetail } from "@/components/storefront/product-detail";
-import type { ProductDTO } from "@/hooks/useProducts";
+import { ProductDetail, type ProductWithReviews } from "@/components/storefront/product-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -17,18 +16,19 @@ export default async function ProductPage({
     where: { slug },
     include: {
       variants: true,
-      store: { select: { id: true, name: true, slug: true, wilayaCode: true, status: true } },
+      store: { select: { id: true, name: true, slug: true, wilayaCode: true, isActive: true } },
       reviews: {
-        include: { author: { select: { fullName: true } } },
+        where: { status: "APPROVED" },
+        include: { buyer: { select: { fullName: true } } },
         orderBy: { createdAt: "desc" },
         take: 10,
       },
     },
   });
 
-  if (!product || !product.isPublished || product.store.status !== "ACTIVE") {
+  if (!product || !product.isPublished || !product.store.isActive) {
     notFound();
   }
 
-  return <ProductDetail product={serialize(product) as unknown as ProductDTO & { reviews: { id: string; rating: number; comment?: string | null; author?: { fullName: string } | null }[] }} />;
+  return <ProductDetail product={serialize(product) as unknown as ProductWithReviews} />;
 }

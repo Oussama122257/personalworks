@@ -9,16 +9,18 @@ import { formatDZD } from "@/lib/utils";
 import type { ProductDTO } from "@/hooks/useProducts";
 
 export function ProductCard({ product }: { product: ProductDTO }) {
-  const minPrice = Math.min(...product.variants.map((v) => v.price));
+  const prices = product.variants.map((v) => v.price);
+  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
   const inStock = product.variants.some((v) => v.stockQuantity > 0);
+  const cover = product.images[0] ?? product.variants.find((v) => v.image)?.image;
 
   return (
     <Link href={`/products/${product.slug}`}>
       <Card className="group h-full overflow-hidden transition-shadow hover:shadow-lg">
         <div className="relative flex aspect-square items-center justify-center bg-muted">
-          {product.images[0] ? (
+          {cover ? (
             <Image
-              src={product.images[0]}
+              src={cover}
               alt={product.name}
               fill
               sizes="(max-width: 768px) 50vw, 25vw"

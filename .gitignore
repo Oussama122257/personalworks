@@ -20,10 +20,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# env — .env.local is committed here with placeholder values only.
+# env — .env and .env.local are committed with placeholder values only
+# (.env is what the Prisma CLI reads; .env.local is what Next.js reads).
 # Replace them per-environment; never commit real secrets.
-.env
 .env.production
+.env*.real
 
 # uploads (local dev file storage)
 /public/uploads/*

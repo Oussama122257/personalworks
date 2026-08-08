@@ -4,14 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 import { serialize } from "@/lib/utils";
 
-/** SELLER-only: fetch own store (first store owned). */
+/** SELLER-only: fetch own store. */
 export async function GET() {
-  const { session, error } = await requireRole(["seller"]);
+  const { session, error } = await requireRole(["SELLER"]);
   if (error) return error;
 
-  const store = await prisma.store.findFirst({
-    where: { ownerId: session.user.id },
-    include: { wilaya: { select: { code: true, nameFr: true } } },
+  const store = await prisma.store.findUnique({
+    where: { userId: session.user.id },
+    include: { wilaya: { select: { code: true, name: true } } },
   });
   if (!store) {
     return NextResponse.json({ error: "No store found" }, { status: 404 });
@@ -23,15 +23,18 @@ const updateSchema = z.object({
   name: z.string().min(2).optional(),
   description: z.string().max(2000).optional(),
   logoUrl: z.string().url().optional(),
-  shippingProvider: z
+  address: z.string().max(300).optional(),
+  deliveryProviderType: z
     .enum(["ZEEM_DEFAULT", "YALIDINE", "ZR_EXPRESS", "POSTE", "CUSTOM"])
     .optional(),
-  shippingApiKey: z.string().max(200).nullable().optional(),
+  customApiKey: z.string().max(200).nullable().optional(),
+  customApiSecret: z.string().max(200).nullable().optional(),
+  customAccountNumber: z.string().max(100).nullable().optional(),
 });
 
-/** SELLER-only: update store settings (shipping provider, logo, etc.). */
+/** SELLER-only: update store settings (delivery provider, logo, etc.). */
 export async function PUT(req: NextRequest) {
-  const { session, error } = await requireRole(["seller"]);
+  const { session, error } = await requireRole(["SELLER"]);
   if (error) return error;
 
   const body = await req.json().catch(() => null);
@@ -40,7 +43,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const store = await prisma.store.findFirst({ where: { ownerId: session.user.id } });
+  const store = await prisma.store.findUnique({ where: { userId: session.user.id } });
   if (!store) {
     return NextResponse.json({ error: "No store found" }, { status: 404 });
   }

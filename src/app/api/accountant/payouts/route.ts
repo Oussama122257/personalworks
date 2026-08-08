@@ -12,17 +12,17 @@ function csvEscape(value: string) {
  *  - default     → JSON listing
  */
 export async function GET(req: NextRequest) {
-  const { error } = await requireRole(["accountant", "admin"]);
+  const { error } = await requireRole(["ACCOUNTANT", "ADMIN"]);
   if (error) return error;
 
   const payouts = await prisma.transaction.findMany({
     where: { type: "PAYOUT", status: "PENDING" },
     include: {
-      store: {
+      seller: {
         select: {
           name: true,
           balance: true,
-          owner: { select: { fullName: true, email: true, phone: true } },
+          user: { select: { fullName: true, email: true, phone: true } },
         },
       },
       order: { select: { reference: true } },
@@ -37,17 +37,16 @@ export async function GET(req: NextRequest) {
       { store: string; owner: string; contact: string; total: number; orders: number }
     >();
     for (const p of payouts) {
-      const key = p.storeId ?? "unknown";
-      const entry = perStore.get(key) ?? {
-        store: p.store?.name ?? "—",
-        owner: p.store?.owner.fullName ?? "—",
-        contact: p.store?.owner.email ?? p.store?.owner.phone ?? "—",
+      const entry = perStore.get(p.sellerId) ?? {
+        store: p.seller.name,
+        owner: p.seller.user.fullName,
+        contact: p.seller.user.email ?? p.seller.user.phone,
         total: 0,
         orders: 0,
       };
-      entry.total += Number(p.amount);
+      entry.total += p.amount;
       entry.orders += 1;
-      perStore.set(key, entry);
+      perStore.set(p.sellerId, entry);
     }
 
     const rows = [
@@ -68,9 +67,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     payouts: payouts.map((p) => ({
       id: p.id,
-      amount: Number(p.amount),
-      store: p.store?.name ?? "—",
-      owner: p.store?.owner.fullName ?? "—",
+      amount: p.amount,
+      store: p.seller.name,
+      owner: p.seller.user.fullName,
       orderReference: p.order?.reference ?? "—",
       createdAt: p.createdAt.toISOString(),
     })),

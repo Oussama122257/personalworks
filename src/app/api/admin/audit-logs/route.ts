@@ -4,11 +4,11 @@ import { requireRole } from "@/lib/api-auth";
 
 /** ADMIN-only: recent audit log entries. */
 export async function GET() {
-  const { error } = await requireRole(["admin"]);
+  const { error } = await requireRole(["ADMIN"]);
   if (error) return error;
 
   const logs = await prisma.auditLog.findMany({
-    include: { actor: { select: { fullName: true, role: true } } },
+    include: { user: { select: { fullName: true } } },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
@@ -16,12 +16,13 @@ export async function GET() {
   return NextResponse.json({
     logs: logs.map((l) => ({
       id: l.id,
-      actor: l.actor?.fullName ?? "system",
-      actorRole: l.actor?.role ?? "—",
+      actor: l.user?.fullName ?? "system",
+      actorRole: l.userRole,
       action: l.action,
-      entityType: l.entityType,
+      entityType: l.entity,
       entityId: l.entityId,
-      after: l.after,
+      reason: l.reason,
+      after: l.newState,
       createdAt: l.createdAt.toISOString(),
     })),
   });

@@ -12,13 +12,14 @@ const fastOrderSchema = z.object({
   guestName: z.string().min(2),
   phone: z.string().min(8).max(15),
   wilayaCode: z.coerce.number().int().min(1).max(58),
-  communeId: z.string().min(1),
+  communeId: z.coerce.number().int(),
   address: z.string().min(5),
 });
 
 const FALLBACK_SHIPPING_FEE = 500;
+const OWNER_SPLIT = 0.8;
 
-/** One-click COD checkout: creates Order + Shipment and decrements stock. */
+/** One-click COD checkout: creates Order + OrderItem + Shipment, decrements stock. */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = fastOrderSchema.safeParse(body);
@@ -38,7 +39,8 @@ export async function POST(req: NextRequest) {
   if (!variant || !variant.product.isPublished) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
-  if (variant.product.store.status !== "ACTIVE") {
+  const store = variant.product.store;
+  if (!store.isActive) {
     return NextResponse.json({ error: "This store is not active" }, { status: 400 });
   }
   if (variant.stockQuantity < input.quantity) {
@@ -56,22 +58,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Shipping fee from the store's configured provider rate for this wilaya.
-  const provider =
-    variant.product.store.shippingProvider === "CUSTOM"
+  // Shipping fee from the courier rate matrix for the destination wilaya.
+  const courier =
+    store.deliveryProviderType === "ZEEM_DEFAULT" || store.deliveryProviderType === "CUSTOM"
       ? "YALIDINE"
-      : variant.product.store.shippingProvider;
+      : store.deliveryProviderType;
   const rate = await prisma.shippingRate.findFirst({
-    where: {
-      wilayaCode: input.wilayaCode,
-      isActive: true,
-      provider: provider === "ZEEM_DEFAULT" ? "YALIDINE" : provider,
-    },
+    where: { wilayaCode: input.wilayaCode, courierType: courier, isActive: true },
   });
-  const shippingFee = rate ? Number(rate.homeDeliveryPrice) : FALLBACK_SHIPPING_FEE;
+  const shippingFee = rate ? rate.basePrice : FALLBACK_SHIPPING_FEE;
 
-  const unitPrice = Number(variant.price);
-  const totalAmount = round2(unitPrice * input.quantity + shippingFee);
+  const itemsTotal = round2(variant.price * input.quantity);
+  const totalAmount = round2(itemsTotal + shippingFee);
+  const platformFee = round2(totalAmount * (store.commissionRate / 100));
   const reference = generateReference("ZM");
 
   try {
@@ -85,37 +84,44 @@ export async function POST(req: NextRequest) {
         throw new Error("OUT_OF_STOCK");
       }
 
-      const order = await tx.order.create({
+      return tx.order.create({
         data: {
           reference,
           buyerId: session?.user?.id ?? null,
           guestName: input.guestName,
-          phone: input.phone,
-          storeId: variant.product.storeId,
-          variantId: variant.id,
-          quantity: input.quantity,
-          unitPrice,
+          guestPhone: input.phone,
           totalAmount,
-          shippingFee,
-          wilayaCode: input.wilayaCode,
-          communeId: input.communeId,
-          address: input.address,
+          platformFee,
+          ownerShare: round2(platformFee * OWNER_SPLIT),
+          managerShare: round2(platformFee * (1 - OWNER_SPLIT)),
           status: "PENDING",
-          paymentMethod: "COD",
+          checkoutType: "FAST",
+          wilayaCode: input.wilayaCode,
+          address: `${input.address}, ${commune.name}`,
+          items: {
+            create: [
+              {
+                variantId: variant.id,
+                quantity: input.quantity,
+                price: variant.price,
+                sellerId: store.id,
+              },
+            ],
+          },
+          shipments: {
+            create: [
+              {
+                sellerId: store.id,
+                deliveryCompany: courier,
+                trackingNumber: generateReference("ZT"),
+                shippingFee,
+                codAmount: totalAmount,
+                status: "PENDING_PICKUP",
+              },
+            ],
+          },
         },
       });
-
-      await tx.shipment.create({
-        data: {
-          orderId: order.id,
-          trackingNumber: generateReference("ZT"),
-          provider: variant.product.store.shippingProvider,
-          status: "PENDING_PICKUP",
-          codAmount: totalAmount,
-        },
-      });
-
-      return order;
     });
 
     // Post-commit side effects (never block or fail the order).
@@ -130,12 +136,12 @@ export async function POST(req: NextRequest) {
       id: order.id,
       reference: order.reference,
       totalAmount,
-      storeId: order.storeId,
+      storeId: store.id,
       wilayaCode: order.wilayaCode,
       createdAt: order.createdAt,
     });
     await broadcast("orders", "order:new", payload);
-    await broadcast(`store-${order.storeId}`, "order:new", payload);
+    await broadcast(`store-${store.id}`, "order:new", payload);
 
     return NextResponse.json({ success: true, reference: order.reference });
   } catch (err) {

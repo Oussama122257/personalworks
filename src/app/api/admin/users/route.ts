@@ -3,22 +3,27 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { slugify } from "@/lib/utils";
+import { requireRole } from "@/lib/api-auth";
 
-const registerSchema = z.object({
+const staffSchema = z.object({
   fullName: z.string().min(2),
   email: z.string().email(),
-  phone: z.string().min(8).max(15),
+  phone: z.string().min(8).max(20),
   password: z.string().min(8),
-  role: z.enum(["BUYER", "SELLER"]).default("BUYER"),
-  // Seller-only fields
-  storeName: z.string().min(2).optional(),
+  role: z.enum(["WILAYA_MANAGER", "ACCOUNTANT", "AGENT", "ERP_MANAGER"]),
   wilayaCode: z.coerce.number().int().min(1).max(58).optional(),
 });
 
+/**
+ * ADMIN-only: create staff accounts (wilaya managers, agents, accountants).
+ * Needed because the seed only provisions the admin user.
+ */
 export async function POST(req: NextRequest) {
+  const { session, error } = await requireRole(["ADMIN"]);
+  if (error) return error;
+
   const body = await req.json().catch(() => null);
-  const parsed = registerSchema.safeParse(body);
+  const parsed = staffSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid payload", details: parsed.error.flatten() },
@@ -27,9 +32,12 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data;
 
-  if (data.role === "SELLER" && (!data.storeName || !data.wilayaCode)) {
+  if (
+    (data.role === "WILAYA_MANAGER" || data.role === "AGENT") &&
+    !data.wilayaCode
+  ) {
     return NextResponse.json(
-      { error: "storeName and wilayaCode are required for sellers" },
+      { error: "wilayaCode is required for managers and agents" },
       { status: 400 }
     );
   }
@@ -46,7 +54,6 @@ export async function POST(req: NextRequest) {
   }
 
   const passwordHash = await bcrypt.hash(data.password, 10);
-
   const profile = await prisma.$transaction(async (tx) => {
     const profile = await tx.profile.create({
       data: {
@@ -56,35 +63,20 @@ export async function POST(req: NextRequest) {
         passwordHash,
         fullName: data.fullName,
         role: data.role,
+        wilayaCode: data.wilayaCode,
+        isVerified: true,
       },
     });
-
-    if (data.role === "SELLER") {
-      const baseSlug = slugify(data.storeName!) || "store";
-      const slug = `${baseSlug}-${profile.id.slice(-6)}`;
-      // New stores await wilaya-manager approval (isActive: false).
-      await tx.store.create({
-        data: {
-          name: data.storeName!,
-          slug,
-          userId: profile.id,
-          wilayaCode: data.wilayaCode!,
-          isActive: false,
-        },
-      });
-    }
-
     await tx.auditLog.create({
       data: {
-        userId: profile.id,
-        userRole: data.role,
+        userId: session.user.id,
+        userRole: "ADMIN",
         action: "CREATE",
         entity: "USER",
         entityId: profile.id,
-        newState: { role: data.role },
+        newState: { role: data.role, wilayaCode: data.wilayaCode ?? null },
       },
     });
-
     return profile;
   });
 

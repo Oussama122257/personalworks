@@ -6,7 +6,7 @@ import { serialize } from "@/lib/utils";
 
 async function ownProduct(userId: string, productId: string) {
   return prisma.product.findFirst({
-    where: { id: productId, store: { ownerId: userId } },
+    where: { id: productId, store: { userId } },
     include: { variants: true },
   });
 }
@@ -14,11 +14,13 @@ async function ownProduct(userId: string, productId: string) {
 const variantUpdateSchema = z.object({
   id: z.string().optional(),
   sku: z.string().min(1).max(60),
-  name: z.string().min(1),
   size: z.string().optional(),
   color: z.string().optional(),
   price: z.coerce.number().min(1),
+  compareAtPrice: z.coerce.number().min(0).optional(),
   stockQuantity: z.coerce.number().int().min(0),
+  lowStockThreshold: z.coerce.number().int().min(0).default(5),
+  image: z.string().optional(),
 });
 
 const updateSchema = z.object({
@@ -26,8 +28,6 @@ const updateSchema = z.object({
   description: z.string().max(5000).optional(),
   category: z.string().min(2).optional(),
   images: z.array(z.string()).max(8).optional(),
-  basePrice: z.coerce.number().min(1).optional(),
-  lowStockThreshold: z.coerce.number().int().min(0).optional(),
   isPublished: z.boolean().optional(),
   variants: z.array(variantUpdateSchema).optional(),
 });
@@ -37,7 +37,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { session, error } = await requireRole(["seller"]);
+  const { session, error } = await requireRole(["SELLER"]);
   if (error) return error;
 
   const { id } = await params;
@@ -57,13 +57,22 @@ export async function PUT(
     const updated = await tx.product.update({ where: { id }, data: fields });
     if (variants) {
       for (const v of variants) {
+        const data = {
+          sku: v.sku,
+          attributes: { size: v.size ?? null, color: v.color ?? null },
+          price: v.price,
+          compareAtPrice: v.compareAtPrice,
+          stockQuantity: v.stockQuantity,
+          lowStockThreshold: v.lowStockThreshold,
+          image: v.image,
+        };
         if (v.id) {
           await tx.productVariant.update({
             where: { id: v.id, productId: id },
-            data: { sku: v.sku, name: v.name, size: v.size, color: v.color, price: v.price, stockQuantity: v.stockQuantity },
+            data,
           });
         } else {
-          await tx.productVariant.create({ data: { ...v, productId: id } });
+          await tx.productVariant.create({ data: { ...data, productId: id } });
         }
       }
     }
@@ -73,12 +82,12 @@ export async function PUT(
   return NextResponse.json({ success: true, product: serialize(updated) });
 }
 
-/** SELLER-only: delete a product. */
+/** SELLER-only: delete a product (archived instead if it has order history). */
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { session, error } = await requireRole(["seller"]);
+  const { session, error } = await requireRole(["SELLER"]);
   if (error) return error;
 
   const { id } = await params;
@@ -87,7 +96,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
 
-  const orderCount = await prisma.order.count({
+  const orderCount = await prisma.orderItem.count({
     where: { variant: { productId: id } },
   });
   if (orderCount > 0) {
@@ -96,6 +105,10 @@ export async function DELETE(
     return NextResponse.json({ success: true, archived: true });
   }
 
-  await prisma.product.delete({ where: { id } });
+  await prisma.$transaction([
+    prisma.productVariant.deleteMany({ where: { productId: id } }),
+    prisma.review.deleteMany({ where: { productId: id } }),
+    prisma.product.delete({ where: { id } }),
+  ]);
   return NextResponse.json({ success: true });
 }

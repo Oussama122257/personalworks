@@ -5,26 +5,27 @@ import { round2 } from "@/lib/utils";
 
 /** ADMIN-only platform statistics computed with Prisma aggregate queries. */
 export async function GET() {
-  const { error } = await requireRole(["admin"]);
+  const { error } = await requireRole(["ADMIN"]);
   if (error) return error;
 
   const now = new Date();
   const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-  const [totals, sellers, refunds, topStoresRaw, thisMonth, lastMonth] =
+  const [totals, sellers, returns, topSellersRaw, thisMonth, lastMonth] =
     await Promise.all([
       prisma.order.aggregate({
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
-      prisma.store.count({ where: { status: "ACTIVE" } }),
-      prisma.order.count({ where: { status: "REFUNDED" } }),
-      prisma.order.groupBy({
-        by: ["storeId"],
-        _sum: { totalAmount: true },
+      prisma.store.count({ where: { isActive: true } }),
+      prisma.order.count({ where: { status: { in: ["RETURNED", "CANCELLED"] } } }),
+      // Revenue per store via shipments (orders can span several sellers).
+      prisma.shipment.groupBy({
+        by: ["sellerId"],
+        _sum: { codAmount: true },
         _count: { id: true },
-        orderBy: { _sum: { totalAmount: "desc" } },
+        orderBy: { _sum: { codAmount: "desc" } },
         take: 5,
       }),
       prisma.order.aggregate({
@@ -39,17 +40,17 @@ export async function GET() {
       }),
     ]);
 
-  const storeIds = topStoresRaw.map((s) => s.storeId);
+  const sellerIds = topSellersRaw.map((s) => s.sellerId);
   const stores = await prisma.store.findMany({
-    where: { id: { in: storeIds } },
-    select: { id: true, name: true, slug: true, wilaya: { select: { nameFr: true } } },
+    where: { id: { in: sellerIds } },
+    select: { id: true, name: true, slug: true, wilaya: { select: { name: true } } },
   });
   const storeById = new Map(stores.map((s) => [s.id, s]));
 
-  const gmv = Number(totals._sum.totalAmount ?? 0);
+  const gmv = totals._sum.totalAmount ?? 0;
   const totalOrders = totals._count.id;
-  const gmvThisMonth = Number(thisMonth._sum.totalAmount ?? 0);
-  const gmvLastMonth = Number(lastMonth._sum.totalAmount ?? 0);
+  const gmvThisMonth = thisMonth._sum.totalAmount ?? 0;
+  const gmvLastMonth = lastMonth._sum.totalAmount ?? 0;
 
   const growthPct =
     gmvLastMonth > 0
@@ -62,12 +63,12 @@ export async function GET() {
     gmv,
     totalOrders,
     activeSellers: sellers,
-    refundRate: totalOrders > 0 ? round2((refunds / totalOrders) * 100) : 0,
-    topStores: topStoresRaw.map((row) => ({
-      storeId: row.storeId,
-      name: storeById.get(row.storeId)?.name ?? "—",
-      wilaya: storeById.get(row.storeId)?.wilaya?.nameFr ?? "—",
-      revenue: Number(row._sum.totalAmount ?? 0),
+    refundRate: totalOrders > 0 ? round2((returns / totalOrders) * 100) : 0,
+    topStores: topSellersRaw.map((row) => ({
+      storeId: row.sellerId,
+      name: storeById.get(row.sellerId)?.name ?? "—",
+      wilaya: storeById.get(row.sellerId)?.wilaya?.name ?? "—",
+      revenue: row._sum.codAmount ?? 0,
       orders: row._count.id,
     })),
     trends: {

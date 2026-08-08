@@ -33,23 +33,32 @@ export default async function TrackPage({
   const order = await prisma.order.findUnique({
     where: { reference: reference.toUpperCase() },
     include: {
-      shipment: {
-        include: { locationUpdates: { orderBy: { createdAt: "desc" }, take: 10 } },
+      shipments: {
+        include: {
+          locationUpdates: { orderBy: { createdAt: "desc" }, take: 10 },
+          seller: { select: { name: true } },
+        },
       },
-      variant: { include: { product: { select: { name: true } } } },
-      store: { select: { name: true } },
-      wilaya: { select: { nameFr: true } },
-      commune: { select: { name: true } },
+      items: {
+        include: {
+          variant: { select: { sku: true, product: { select: { name: true } } } },
+        },
+      },
+      wilaya: { select: { name: true } },
     },
   });
 
   if (!order) notFound();
 
-  const shipment = order.shipment;
-  const failed = shipment?.status === "FAILED_DELIVERY" || shipment?.status === "RETURNED";
+  const shipment = order.shipments[0];
+  const failed = shipment?.status === "FAILED" || shipment?.status === "RETURNED";
   const currentIdx = shipment
     ? STEPS.findIndex((s) => s.key === shipment.status)
     : -1;
+  const shippingFee = order.shipments.reduce((s, sh) => s + sh.shippingFee, 0);
+  const itemsLabel = order.items
+    .map((i) => `${i.variant.product.name} × ${i.quantity}`)
+    .join(", ");
 
   return (
     <main className="container max-w-2xl py-10">
@@ -65,7 +74,7 @@ export default async function TrackPage({
           <CardTitle className="flex items-center justify-between text-base">
             <span className="flex items-center gap-2">
               <Package className="h-4 w-4" />
-              {order.variant.product.name} × {order.quantity}
+              {itemsLabel || "Commande"}
             </span>
             <Badge variant={failed ? "destructive" : "secondary"}>
               {failed ? "Échec de livraison" : STEPS[Math.max(currentIdx, 0)]?.label}
@@ -73,18 +82,19 @@ export default async function TrackPage({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-sm text-muted-foreground">
-          <p>Vendeur : {order.store.name}</p>
+          {shipment && <p>Vendeur : {shipment.seller.name}</p>}
           <p>
-            Destination : {order.commune.name}, {order.wilaya.nameFr} — {order.address}
+            Destination : {order.address}
+            {order.wilaya ? `, ${order.wilaya.name}` : ""}
           </p>
           <p>
             Total à payer à la livraison :{" "}
             <span className="font-semibold text-foreground">
-              {formatDZD(Number(order.totalAmount))}
+              {formatDZD(order.totalAmount)}
             </span>{" "}
-            (dont livraison {formatDZD(Number(order.shippingFee))})
+            (dont livraison {formatDZD(shippingFee)})
           </p>
-          {shipment && <p>N° de suivi : {shipment.trackingNumber}</p>}
+          {shipment?.trackingNumber && <p>N° de suivi : {shipment.trackingNumber}</p>}
         </CardContent>
       </Card>
 
@@ -132,7 +142,7 @@ export default async function TrackPage({
             {shipment.locationUpdates.map((u) => (
               <p key={u.id}>
                 {u.createdAt.toLocaleString("fr-DZ")} — ({u.lat.toFixed(5)},{" "}
-                {u.lng.toFixed(5)}){u.note ? ` · ${u.note}` : ""}
+                {u.lng.toFixed(5)})
               </p>
             ))}
           </CardContent>

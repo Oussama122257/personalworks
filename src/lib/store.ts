@@ -12,6 +12,7 @@ export interface SessionUser {
   name?: string | null;
   email?: string | null;
   image?: string | null;
+  /** Role enum value from the Profile table: ADMIN, SELLER, AGENT, … */
   role: string;
   wilayaCode: number | null;
 }
@@ -63,7 +64,7 @@ export interface CartItem {
   variantName: string;
   price: number;
   quantity: number;
-  image?: string;
+  image?: string | null;
 }
 
 interface CartState {

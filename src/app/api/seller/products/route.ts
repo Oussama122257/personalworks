@@ -6,11 +6,11 @@ import { serialize, slugify } from "@/lib/utils";
 
 /** SELLER-only: list own products with variants. */
 export async function GET() {
-  const { session, error } = await requireRole(["seller"]);
+  const { session, error } = await requireRole(["SELLER"]);
   if (error) return error;
 
   const products = await prisma.product.findMany({
-    where: { store: { ownerId: session.user.id } },
+    where: { store: { userId: session.user.id } },
     include: { variants: true },
     orderBy: { createdAt: "desc" },
   });
@@ -20,11 +20,13 @@ export async function GET() {
 
 const variantSchema = z.object({
   sku: z.string().min(1).max(60),
-  name: z.string().min(1),
   size: z.string().optional(),
   color: z.string().optional(),
   price: z.coerce.number().min(1),
+  compareAtPrice: z.coerce.number().min(0).optional(),
   stockQuantity: z.coerce.number().int().min(0),
+  lowStockThreshold: z.coerce.number().int().min(0).default(5),
+  image: z.string().optional(),
 });
 
 const createSchema = z.object({
@@ -32,15 +34,13 @@ const createSchema = z.object({
   description: z.string().max(5000).optional(),
   category: z.string().min(2).default("General"),
   images: z.array(z.string()).max(8).default([]),
-  basePrice: z.coerce.number().min(1),
-  lowStockThreshold: z.coerce.number().int().min(0).default(5),
   isPublished: z.boolean().default(true),
   variants: z.array(variantSchema).min(1),
 });
 
 /** SELLER-only: create a product with its variants. */
 export async function POST(req: NextRequest) {
-  const { session, error } = await requireRole(["seller"]);
+  const { session, error } = await requireRole(["SELLER"]);
   if (error) return error;
 
   const body = await req.json().catch(() => null);
@@ -53,11 +53,11 @@ export async function POST(req: NextRequest) {
   }
   const data = parsed.data;
 
-  const store = await prisma.store.findFirst({ where: { ownerId: session.user.id } });
+  const store = await prisma.store.findUnique({ where: { userId: session.user.id } });
   if (!store) {
     return NextResponse.json({ error: "No store found" }, { status: 404 });
   }
-  if (store.status !== "ACTIVE") {
+  if (!store.isActive) {
     return NextResponse.json(
       { error: "Store must be approved before adding products" },
       { status: 403 }
@@ -73,10 +73,18 @@ export async function POST(req: NextRequest) {
       description: data.description,
       category: data.category,
       images: data.images,
-      basePrice: data.basePrice,
-      lowStockThreshold: data.lowStockThreshold,
       isPublished: data.isPublished,
-      variants: { create: data.variants },
+      variants: {
+        create: data.variants.map((v) => ({
+          sku: v.sku,
+          attributes: { size: v.size ?? null, color: v.color ?? null },
+          price: v.price,
+          compareAtPrice: v.compareAtPrice,
+          stockQuantity: v.stockQuantity,
+          lowStockThreshold: v.lowStockThreshold,
+          image: v.image,
+        })),
+      },
     },
     include: { variants: true },
   });

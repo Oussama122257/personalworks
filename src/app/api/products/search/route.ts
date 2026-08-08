@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const where: Prisma.ProductWhereInput = {
     isPublished: true,
     store: {
-      status: "ACTIVE",
+      isActive: true,
       ...(wilayaCode ? { wilayaCode: Number(wilayaCode) } : {}),
     },
     ...(category ? { category: { equals: category, mode: "insensitive" } } : {}),

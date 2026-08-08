@@ -2,14 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+export interface VariantAttributes {
+  size?: string | null;
+  color?: string | null;
+}
+
 export interface ProductVariantDTO {
   id: string;
   sku: string;
-  name: string;
-  size?: string | null;
-  color?: string | null;
+  attributes: VariantAttributes;
   price: number;
+  compareAtPrice?: number | null;
   stockQuantity: number;
+  lowStockThreshold: number;
+  image?: string | null;
 }
 
 export interface ProductDTO {
@@ -17,13 +23,17 @@ export interface ProductDTO {
   name: string;
   slug: string;
   description?: string | null;
-  category: string;
+  category?: string | null;
   images: string[];
-  basePrice: number;
-  lowStockThreshold: number;
   isPublished: boolean;
   variants: ProductVariantDTO[];
   store: { id: string; name: string; slug: string; wilayaCode: number };
+}
+
+/** Human label for a variant, derived from its attributes (falls back to SKU). */
+export function variantLabel(v: ProductVariantDTO): string {
+  const parts = [v.attributes?.size, v.attributes?.color].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : v.sku;
 }
 
 export function useProducts(params: { q?: string; wilayaCode?: number | null; category?: string }) {

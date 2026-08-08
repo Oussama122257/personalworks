@@ -18,7 +18,7 @@ const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
  * Swap the fs write for S3/UploadThing in production.
  */
 export async function POST(req: NextRequest) {
-  const { error } = await requireRole(["seller", "admin"]);
+  const { error } = await requireRole(["SELLER", "ADMIN"]);
   if (error) return error;
 
   const formData = await req.formData().catch(() => null);

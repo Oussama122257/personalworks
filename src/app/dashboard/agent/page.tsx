@@ -29,37 +29,51 @@ import {
 
 interface ShipmentDTO {
   id: string;
-  trackingNumber: string;
+  trackingNumber?: string | null;
   status: string;
   codAmount: number;
   order: {
     reference: string;
     guestName?: string | null;
-    phone: string;
+    guestPhone?: string | null;
     address: string;
-    quantity: number;
-    commune: { name: string };
-    wilaya: { nameFr: string };
-    variant: { product: { name: string } };
+    wilaya?: { name: string } | null;
+    items: {
+      id: string;
+      quantity: number;
+      variant: { sku: string; product: { name: string } };
+    }[];
   };
 }
 
 const FAILURE_REASONS = [
-  "Client injoignable",
-  "Client absent",
-  "Adresse introuvable",
-  "Commande refusée par le client",
-  "Colis endommagé",
-  "Autre",
+  "BUYER_NOT_HOME",
+  "WRONG_ADDRESS",
+  "BUYER_UNREACHABLE",
+  "ORDER_REFUSED",
+  "PACKAGE_DAMAGED",
+  "OTHER",
 ];
 
-const STATUS_LABEL: Record<string, { label: string; variant: "secondary" | "success" | "destructive" | "warning" }> = {
+const FAILURE_LABEL: Record<string, string> = {
+  BUYER_NOT_HOME: "Client absent",
+  WRONG_ADDRESS: "Adresse incorrecte",
+  BUYER_UNREACHABLE: "Client injoignable",
+  ORDER_REFUSED: "Commande refusée",
+  PACKAGE_DAMAGED: "Colis endommagé",
+  OTHER: "Autre",
+};
+
+const STATUS_LABEL: Record<
+  string,
+  { label: string; variant: "secondary" | "success" | "destructive" | "warning" }
+> = {
   PENDING_PICKUP: { label: "À ramasser", variant: "warning" },
   PICKED_UP: { label: "Ramassé", variant: "secondary" },
   IN_TRANSIT: { label: "En transit", variant: "secondary" },
   OUT_FOR_DELIVERY: { label: "En livraison", variant: "secondary" },
   DELIVERED_COD_COLLECTED: { label: "Livré ✅", variant: "success" },
-  FAILED_DELIVERY: { label: "Échec", variant: "destructive" },
+  FAILED: { label: "Échec", variant: "destructive" },
   RETURNED: { label: "Retourné", variant: "destructive" },
 };
 
@@ -97,9 +111,7 @@ function CollectDialog({
         toast.error(data.error ?? "Échec de la confirmation");
         return;
       }
-      toast.success(
-        `Livraison confirmée — ${formatDZD(Number(amount))} encaissés ✅`
-      );
+      toast.success(`Livraison confirmée — ${formatDZD(Number(amount))} encaissés ✅`);
       onClose();
       onDone();
     } finally {
@@ -187,7 +199,7 @@ function FailDialog({
               <SelectContent>
                 {FAILURE_REASONS.map((r) => (
                   <SelectItem key={r} value={r}>
-                    {r}
+                    {FAILURE_LABEL[r]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -233,10 +245,10 @@ export default function AgentDashboard() {
   }
 
   const active = shipments?.filter(
-    (s) => !["DELIVERED_COD_COLLECTED", "FAILED_DELIVERY", "RETURNED"].includes(s.status)
+    (s) => !["DELIVERED_COD_COLLECTED", "FAILED", "RETURNED"].includes(s.status)
   );
   const done = shipments?.filter((s) =>
-    ["DELIVERED_COD_COLLECTED", "FAILED_DELIVERY", "RETURNED"].includes(s.status)
+    ["DELIVERED_COD_COLLECTED", "FAILED", "RETURNED"].includes(s.status)
   );
 
   return (
@@ -264,19 +276,24 @@ export default function AgentDashboard() {
             </CardHeader>
             <CardContent className="space-y-2">
               <p className="text-sm font-medium">
-                {s.order.variant.product.name} × {s.order.quantity}
+                {s.order.items
+                  .map((i) => `${i.variant.product.name} × ${i.quantity}`)
+                  .join(", ")}
               </p>
               <p className="flex items-center gap-1 text-sm text-muted-foreground">
                 <MapPin className="h-3.5 w-3.5 shrink-0" />
-                {s.order.address}, {s.order.commune.name}, {s.order.wilaya.nameFr}
+                {s.order.address}
+                {s.order.wilaya ? `, ${s.order.wilaya.name}` : ""}
               </p>
-              <p className="flex items-center gap-1 text-sm text-muted-foreground">
-                <Phone className="h-3.5 w-3.5" />
-                <a href={`tel:${s.order.phone}`} className="underline">
-                  {s.order.phone}
-                </a>{" "}
-                — {s.order.guestName}
-              </p>
+              {s.order.guestPhone && (
+                <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Phone className="h-3.5 w-3.5" />
+                  <a href={`tel:${s.order.guestPhone}`} className="underline">
+                    {s.order.guestPhone}
+                  </a>
+                  {s.order.guestName ? ` — ${s.order.guestName}` : ""}
+                </p>
+              )}
               <p className="text-sm">
                 À encaisser :{" "}
                 <span className="font-bold text-primary">{formatDZD(s.codAmount)}</span>

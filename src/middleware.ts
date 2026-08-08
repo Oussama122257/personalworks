@@ -6,20 +6,21 @@ import { authConfig } from "@/lib/auth.config";
 const { auth } = NextAuth(authConfig);
 
 const ROLE_HOME: Record<string, string> = {
-  admin: "/dashboard/admin",
-  seller: "/dashboard/seller",
-  wilaya_manager: "/dashboard/manager",
-  accountant: "/dashboard/accountant",
-  agent: "/dashboard/agent",
-  buyer: "/",
+  ADMIN: "/dashboard/admin",
+  SELLER: "/dashboard/seller",
+  WILAYA_MANAGER: "/dashboard/manager",
+  ACCOUNTANT: "/dashboard/accountant",
+  AGENT: "/dashboard/agent",
+  ERP_MANAGER: "/",
+  BUYER: "/",
 };
 
 const SEGMENT_ROLE: Record<string, string> = {
-  admin: "admin",
-  seller: "seller",
-  manager: "wilaya_manager",
-  accountant: "accountant",
-  agent: "agent",
+  admin: "ADMIN",
+  seller: "SELLER",
+  manager: "WILAYA_MANAGER",
+  accountant: "ACCOUNTANT",
+  agent: "AGENT",
 };
 
 export default auth((req) => {
@@ -33,11 +34,11 @@ export default auth((req) => {
     return NextResponse.redirect(loginUrl);
   }
 
-  const role = user.role ?? "buyer";
+  const role = user.role ?? "BUYER";
   const home = ROLE_HOME[role] ?? "/";
 
-  // Buyers have no dashboard: send them to the storefront.
-  if (role === "buyer") {
+  // Roles without a dashboard are sent to the storefront.
+  if (home === "/") {
     return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 

@@ -10,20 +10,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useCartStore } from "@/lib/store";
 import { formatDZD } from "@/lib/utils";
-import type { ProductDTO } from "@/hooks/useProducts";
+import { variantLabel, type ProductDTO } from "@/hooks/useProducts";
 
 type ReviewDTO = {
   id: string;
   rating: number;
+  title?: string | null;
   comment?: string | null;
-  author?: { fullName: string } | null;
+  buyer?: { fullName: string } | null;
 };
 
-export function ProductDetail({
-  product,
-}: {
-  product: ProductDTO & { reviews: ReviewDTO[] };
-}) {
+export type ProductWithReviews = ProductDTO & { reviews: ReviewDTO[] };
+
+export function ProductDetail({ product }: { product: ProductWithReviews }) {
   const [imageIdx, setImageIdx] = useState(0);
   const [variantId, setVariantId] = useState(
     product.variants.find((v) => v.stockQuantity > 0)?.id ?? product.variants[0]?.id
@@ -37,12 +36,14 @@ export function ProductDetail({
     [product.variants, variantId]
   );
 
-  const sizes = [...new Set(product.variants.map((v) => v.size).filter(Boolean))];
-  const colors = [...new Set(product.variants.map((v) => v.color).filter(Boolean))];
+  const sizes = [...new Set(product.variants.map((v) => v.attributes?.size).filter(Boolean))] as string[];
+  const colors = [...new Set(product.variants.map((v) => v.attributes?.color).filter(Boolean))] as string[];
   const avgRating =
     product.reviews.length > 0
       ? product.reviews.reduce((s, r) => s + r.rating, 0) / product.reviews.length
       : null;
+
+  const mainImage = variant?.image ?? product.images[imageIdx];
 
   return (
     <>
@@ -52,9 +53,9 @@ export function ProductDetail({
           {/* Gallery */}
           <div>
             <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-xl bg-muted">
-              {product.images[imageIdx] ? (
+              {mainImage ? (
                 <Image
-                  src={product.images[imageIdx]}
+                  src={mainImage}
                   alt={product.name}
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -85,7 +86,8 @@ export function ProductDetail({
           {/* Info */}
           <div>
             <p className="text-sm text-muted-foreground">
-              {product.store.name} · {product.category}
+              {product.store.name}
+              {product.category ? ` · ${product.category}` : ""}
             </p>
             <h1 className="mt-1 text-3xl font-bold">{product.name}</h1>
             {avgRating !== null && (
@@ -96,6 +98,11 @@ export function ProductDetail({
             )}
             <p className="mt-3 text-3xl font-extrabold text-primary">
               {variant ? formatDZD(variant.price) : "—"}
+              {variant?.compareAtPrice && variant.compareAtPrice > variant.price && (
+                <span className="ml-2 text-base font-normal text-muted-foreground line-through">
+                  {formatDZD(variant.compareAtPrice)}
+                </span>
+              )}
             </p>
 
             {sizes.length > 0 && (
@@ -106,11 +113,15 @@ export function ProductDetail({
                     <Button
                       key={size}
                       size="sm"
-                      variant={variant?.size === size ? "default" : "outline"}
+                      variant={variant?.attributes?.size === size ? "default" : "outline"}
                       onClick={() => {
-                        const v = product.variants.find(
-                          (v) => v.size === size && (!variant?.color || v.color === variant.color)
-                        ) ?? product.variants.find((v) => v.size === size);
+                        const v =
+                          product.variants.find(
+                            (v) =>
+                              v.attributes?.size === size &&
+                              (!variant?.attributes?.color ||
+                                v.attributes?.color === variant.attributes.color)
+                          ) ?? product.variants.find((v) => v.attributes?.size === size);
                         if (v) setVariantId(v.id);
                       }}
                     >
@@ -128,11 +139,15 @@ export function ProductDetail({
                     <Button
                       key={color}
                       size="sm"
-                      variant={variant?.color === color ? "default" : "outline"}
+                      variant={variant?.attributes?.color === color ? "default" : "outline"}
                       onClick={() => {
-                        const v = product.variants.find(
-                          (v) => v.color === color && (!variant?.size || v.size === variant.size)
-                        ) ?? product.variants.find((v) => v.color === color);
+                        const v =
+                          product.variants.find(
+                            (v) =>
+                              v.attributes?.color === color &&
+                              (!variant?.attributes?.size ||
+                                v.attributes?.size === variant.attributes.size)
+                          ) ?? product.variants.find((v) => v.attributes?.color === color);
                         if (v) setVariantId(v.id);
                       }}
                     >
@@ -151,7 +166,7 @@ export function ProductDetail({
                     variant={v.id === variantId ? "default" : "outline"}
                     onClick={() => setVariantId(v.id)}
                   >
-                    {v.name}
+                    {variantLabel(v)}
                   </Button>
                 ))}
               </div>
@@ -207,10 +222,10 @@ export function ProductDetail({
                     variantId: variant.id,
                     productSlug: product.slug,
                     productName: product.name,
-                    variantName: variant.name,
+                    variantName: variantLabel(variant),
                     price: variant.price,
                     quantity,
-                    image: product.images[0],
+                    image: variant.image ?? product.images[0],
                   });
                   toast.success("Ajouté au panier");
                 }}
@@ -235,12 +250,13 @@ export function ProductDetail({
                   {product.reviews.map((r) => (
                     <div key={r.id} className="rounded-lg border p-3">
                       <p className="flex items-center gap-1 text-sm font-medium">
-                        {r.author?.fullName ?? "Client"} ·{" "}
+                        {r.buyer?.fullName ?? "Client"} ·{" "}
                         <span className="flex items-center">
                           {r.rating}
                           <Star className="ml-0.5 h-3 w-3 fill-amber-400 text-amber-400" />
                         </span>
                       </p>
+                      {r.title && <p className="mt-1 text-sm font-medium">{r.title}</p>}
                       {r.comment && (
                         <p className="mt-1 text-sm text-muted-foreground">{r.comment}</p>
                       )}
@@ -258,7 +274,7 @@ export function ProductDetail({
           open={orderOpen}
           onOpenChange={setOrderOpen}
           variantId={variant.id}
-          productName={`${product.name} (${variant.name})`}
+          productName={`${product.name} (${variantLabel(variant)})`}
           unitPrice={variant.price}
           quantity={quantity}
         />

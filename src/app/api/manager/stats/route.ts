@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/api-auth";
 
 /** WILAYA_MANAGER-only: regional stats + 20% commission tracker. */
 export async function GET() {
-  const { session, error } = await requireRole(["wilaya_manager"]);
+  const { session, error } = await requireRole(["WILAYA_MANAGER"]);
   if (error) return error;
 
   const wilayaCode = session.user.wilayaCode;
@@ -21,20 +21,21 @@ export async function GET() {
       _count: { id: true },
       where: { wilayaCode },
     }),
-    prisma.store.count({ where: { wilayaCode, status: "ACTIVE" } }),
-    prisma.store.count({ where: { wilayaCode, status: "PENDING" } }),
+    prisma.store.count({ where: { wilayaCode, isActive: true } }),
+    prisma.store.count({ where: { wilayaCode, isActive: false, approvedBy: null } }),
+    // Manager commission = COMMISSION_MANAGER transactions on this wilaya's stores.
     prisma.transaction.aggregate({
       _sum: { amount: true },
-      where: { type: "COMMISSION_MANAGER", profileId: session.user.id },
+      where: { type: "COMMISSION_MANAGER", seller: { wilayaCode } },
     }),
   ]);
 
   return NextResponse.json({
     wilayaCode,
-    regionalGmv: Number(orders._sum.totalAmount ?? 0),
+    regionalGmv: orders._sum.totalAmount ?? 0,
     regionalOrders: orders._count.id,
     activeStores: stores,
     pendingStores,
-    commissionEarned: Number(commission._sum.amount ?? 0),
+    commissionEarned: commission._sum.amount ?? 0,
   });
 }

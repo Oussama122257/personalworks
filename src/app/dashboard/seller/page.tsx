@@ -14,7 +14,7 @@ import {
   Upload,
   Loader2,
 } from "lucide-react";
-import { useSellerProducts, type ProductDTO } from "@/hooks/useProducts";
+import { useSellerProducts, variantLabel, type ProductDTO } from "@/hooks/useProducts";
 import { useOrders } from "@/hooks/useOrders";
 import { useRealtime } from "@/hooks/useRealtime";
 import { formatDZD } from "@/lib/utils";
@@ -53,32 +53,33 @@ interface StoreDTO {
   id: string;
   name: string;
   slug: string;
-  status: string;
+  isActive: boolean;
+  approvedBy?: string | null;
   balance: number;
   commissionRate: number;
   logoUrl?: string | null;
-  shippingProvider: string;
-  shippingApiKey?: string | null;
-  wilaya: { code: number; nameFr: string };
+  deliveryProviderType: string;
+  customApiKey?: string | null;
+  wilaya: { code: number; name: string };
 }
 
 interface VariantForm {
   id?: string;
   sku: string;
-  name: string;
   size: string;
   color: string;
   price: string;
   stockQuantity: string;
+  lowStockThreshold: string;
 }
 
 const EMPTY_VARIANT: VariantForm = {
   sku: "",
-  name: "",
   size: "",
   color: "",
   price: "",
   stockQuantity: "0",
+  lowStockThreshold: "5",
 };
 
 function ProductFormDialog({
@@ -99,17 +100,15 @@ function ProductFormDialog({
     name: product?.name ?? "",
     description: product?.description ?? "",
     category: product?.category ?? "General",
-    basePrice: product ? String(product.basePrice) : "",
-    lowStockThreshold: product ? String(product.lowStockThreshold) : "5",
     images: product?.images ?? [],
     variants: (product?.variants.map((v) => ({
       id: v.id,
       sku: v.sku,
-      name: v.name,
-      size: v.size ?? "",
-      color: v.color ?? "",
+      size: v.attributes?.size ?? "",
+      color: v.attributes?.color ?? "",
       price: String(v.price),
       stockQuantity: String(v.stockQuantity),
+      lowStockThreshold: String(v.lowStockThreshold),
     })) ?? [{ ...EMPTY_VARIANT }]) as VariantForm[],
   }));
 
@@ -138,17 +137,15 @@ function ProductFormDialog({
         name: form.name,
         description: form.description || undefined,
         category: form.category,
-        basePrice: Number(form.basePrice),
-        lowStockThreshold: Number(form.lowStockThreshold),
         images: form.images,
         variants: form.variants.map((v) => ({
           ...(v.id ? { id: v.id } : {}),
           sku: v.sku,
-          name: v.name || v.sku,
           size: v.size || undefined,
           color: v.color || undefined,
           price: Number(v.price),
           stockQuantity: Number(v.stockQuantity),
+          lowStockThreshold: Number(v.lowStockThreshold),
         })),
       };
       const res = await fetch(
@@ -205,43 +202,23 @@ function ProductFormDialog({
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Catégorie</Label>
-                <Select
-                  value={form.category}
-                  onValueChange={(v) => setForm({ ...form, category: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["Mode", "Électronique", "Maison", "Beauté", "Sport", "General"].map(
-                      (c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Prix de base</Label>
-                <Input
-                  type="number"
-                  value={form.basePrice}
-                  onChange={(e) => setForm({ ...form, basePrice: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Seuil stock bas</Label>
-                <Input
-                  type="number"
-                  value={form.lowStockThreshold}
-                  onChange={(e) => setForm({ ...form, lowStockThreshold: e.target.value })}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label>Catégorie</Label>
+              <Select
+                value={form.category}
+                onValueChange={(v) => setForm({ ...form, category: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {["Mode", "Électronique", "Maison", "Beauté", "Sport", "General"].map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         )}
@@ -256,7 +233,7 @@ function ProductFormDialog({
                     value={v.sku}
                     onChange={(e) => {
                       const variants = [...form.variants];
-                      variants[i] = { ...v, sku: e.target.value, name: v.name || e.target.value };
+                      variants[i] = { ...v, sku: e.target.value };
                       setForm({ ...form, variants });
                     }}
                   />
@@ -387,7 +364,7 @@ function ProductFormDialog({
           {step < 3 ? (
             <Button
               disabled={
-                (step === 1 && (!form.name || !form.basePrice)) ||
+                (step === 1 && !form.name) ||
                 (step === 2 && form.variants.some((v) => !v.sku || !v.price))
               }
               onClick={() => setStep((s) => s + 1)}
@@ -432,8 +409,8 @@ export default function SellerDashboard() {
   const lowStock =
     products?.flatMap((p) =>
       p.variants
-        .filter((v) => v.stockQuantity < p.lowStockThreshold)
-        .map((v) => ({ product: p.name, variant: v.name, stock: v.stockQuantity }))
+        .filter((v) => v.stockQuantity < v.lowStockThreshold)
+        .map((v) => ({ product: p.name, variant: variantLabel(v), stock: v.stockQuantity }))
     ) ?? [];
 
   async function deleteProduct(id: string) {
@@ -453,8 +430,8 @@ export default function SellerDashboard() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        shippingProvider: provider,
-        shippingApiKey: provider === "CUSTOM" ? (apiKey ?? "") : null,
+        deliveryProviderType: provider,
+        customApiKey: provider === "CUSTOM" ? (apiKey ?? "") : null,
       }),
     });
     if (res.ok) {
@@ -465,14 +442,17 @@ export default function SellerDashboard() {
     }
   }
 
-  if (store && store.status !== "ACTIVE") {
+  if (store && !store.isActive) {
     return (
       <div className="container py-16 text-center">
         <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
-        <h1 className="mt-3 text-xl font-bold">Boutique en attente d&apos;approbation</h1>
+        <h1 className="mt-3 text-xl font-bold">
+          {store.approvedBy ? "Boutique désactivée" : "Boutique en attente d'approbation"}
+        </h1>
         <p className="mt-1 text-muted-foreground">
-          Votre boutique « {store.name} » ({store.status}) doit être validée par le
-          manager de votre wilaya avant de pouvoir vendre.
+          {store.approvedBy
+            ? `Votre boutique « ${store.name} » a été désactivée. Contactez le manager de votre wilaya.`
+            : `Votre boutique « ${store.name} » doit être validée par le manager de la wilaya ${store.wilaya.name} avant de pouvoir vendre.`}
         </p>
       </div>
     );
@@ -546,7 +526,7 @@ export default function SellerDashboard() {
                   {products?.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.name}</TableCell>
-                      <TableCell>{p.category}</TableCell>
+                      <TableCell>{p.category ?? "—"}</TableCell>
                       <TableCell>{p.variants.length}</TableCell>
                       <TableCell>
                         {p.variants.reduce((s, v) => s + v.stockQuantity, 0)}
@@ -594,7 +574,7 @@ export default function SellerDashboard() {
                   <TableRow>
                     <TableHead>Réf.</TableHead>
                     <TableHead>Client</TableHead>
-                    <TableHead>Produit</TableHead>
+                    <TableHead>Articles</TableHead>
                     <TableHead>Destination</TableHead>
                     <TableHead>Statut</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -605,17 +585,24 @@ export default function SellerDashboard() {
                     <TableRow key={o.id}>
                       <TableCell className="font-mono text-xs">{o.reference}</TableCell>
                       <TableCell>
-                        {o.guestName}
-                        <span className="block text-xs text-muted-foreground">{o.phone}</span>
-                      </TableCell>
-                      <TableCell>
-                        {o.variant.product.name} × {o.quantity}
+                        {o.buyer?.fullName ?? o.guestName ?? "—"}
+                        <span className="block text-xs text-muted-foreground">
+                          {o.guestPhone ?? ""}
+                        </span>
                       </TableCell>
                       <TableCell className="text-xs">
-                        {o.commune.name}, {o.wilaya.nameFr}
+                        {o.items
+                          .map((i) => `${i.variant.product.name} × ${i.quantity}`)
+                          .join(", ")}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {o.address}
+                        {o.wilaya ? `, ${o.wilaya.name}` : ""}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{o.shipment?.status ?? o.status}</Badge>
+                        <Badge variant="secondary">
+                          {o.shipments[0]?.status ?? o.status}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right">{formatDZD(o.totalAmount)}</TableCell>
                     </TableRow>
@@ -645,8 +632,8 @@ export default function SellerDashboard() {
               <div className="space-y-1.5">
                 <Label>Transporteur</Label>
                 <Select
-                  value={store?.shippingProvider ?? "ZEEM_DEFAULT"}
-                  onValueChange={(v) => updateShipping(v, store?.shippingApiKey ?? undefined)}
+                  value={store?.deliveryProviderType ?? "ZEEM_DEFAULT"}
+                  onValueChange={(v) => updateShipping(v, store?.customApiKey ?? undefined)}
                 >
                   <SelectTrigger className="max-w-sm">
                     <SelectValue />
@@ -660,13 +647,13 @@ export default function SellerDashboard() {
                   </SelectContent>
                 </Select>
               </div>
-              {store?.shippingProvider === "CUSTOM" && (
+              {store?.deliveryProviderType === "CUSTOM" && (
                 <div className="space-y-1.5">
                   <Label>Clé API transporteur</Label>
                   <div className="flex max-w-sm gap-2">
                     <Input
                       id="api-key"
-                      defaultValue={store.shippingApiKey ?? ""}
+                      defaultValue={store.customApiKey ?? ""}
                       placeholder="sk_…"
                     />
                     <Button

@@ -29,8 +29,8 @@ interface PendingStoreDTO {
   id: string;
   name: string;
   createdAt: string;
-  owner: { fullName: string; email?: string | null; phone?: string | null };
-  wilaya: { nameFr: string };
+  user: { fullName: string; email?: string | null; phone: string };
+  wilaya: { name: string };
 }
 
 export default function ManagerDashboard() {
@@ -91,7 +91,7 @@ export default function ManagerDashboard() {
           icon={Store}
         />
         <StatCard
-          title="Mes commissions (20%)"
+          title="Commissions (2%)"
           value={stats ? formatDZD(stats.commissionEarned) : "…"}
           hint="Part manager sur les commissions"
           icon={Percent}
@@ -120,9 +120,9 @@ export default function ManagerDashboard() {
               {pending?.map((s) => (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">{s.name}</TableCell>
-                  <TableCell>{s.owner.fullName}</TableCell>
+                  <TableCell>{s.user.fullName}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {s.owner.email ?? s.owner.phone ?? "—"}
+                    {s.user.email ?? s.user.phone}
                   </TableCell>
                   <TableCell className="text-xs">
                     {new Date(s.createdAt).toLocaleDateString("fr-DZ")}

@@ -28,11 +28,11 @@ export function StorefrontHeader({
   const [cartOpen, setCartOpen] = useState(false);
 
   const dashboardHome: Record<string, string> = {
-    admin: "/dashboard/admin",
-    seller: "/dashboard/seller",
-    wilaya_manager: "/dashboard/manager",
-    accountant: "/dashboard/accountant",
-    agent: "/dashboard/agent",
+    ADMIN: "/dashboard/admin",
+    SELLER: "/dashboard/seller",
+    WILAYA_MANAGER: "/dashboard/manager",
+    ACCOUNTANT: "/dashboard/accountant",
+    AGENT: "/dashboard/agent",
   };
 
   return (
@@ -64,7 +64,7 @@ export function StorefrontHeader({
               <SelectItem value="all">Toutes les wilayas</SelectItem>
               {wilayas?.map((w) => (
                 <SelectItem key={w.code} value={String(w.code)}>
-                  {w.code} — {w.nameFr}
+                  {w.code} — {w.name}
                 </SelectItem>
               ))}
             </SelectContent>

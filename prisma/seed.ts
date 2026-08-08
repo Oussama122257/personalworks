@@ -1,337 +1,162 @@
-import { PrismaClient, ShippingProvider } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient();
-
-// ---------------------------------------------------------------------------
-// All 58 Algerian wilayas. zone drives shipping pricing (1 north … 4 deep south)
-// ---------------------------------------------------------------------------
-const WILAYAS: { code: number; nameFr: string; nameAr: string; zone: number }[] = [
-  { code: 1, nameFr: "Adrar", nameAr: "أدرار", zone: 4 },
-  { code: 2, nameFr: "Chlef", nameAr: "الشلف", zone: 1 },
-  { code: 3, nameFr: "Laghouat", nameAr: "الأغواط", zone: 3 },
-  { code: 4, nameFr: "Oum El Bouaghi", nameAr: "أم البواقي", zone: 2 },
-  { code: 5, nameFr: "Batna", nameAr: "باتنة", zone: 2 },
-  { code: 6, nameFr: "Béjaïa", nameAr: "بجاية", zone: 1 },
-  { code: 7, nameFr: "Biskra", nameAr: "بسكرة", zone: 3 },
-  { code: 8, nameFr: "Béchar", nameAr: "بشار", zone: 4 },
-  { code: 9, nameFr: "Blida", nameAr: "البليدة", zone: 1 },
-  { code: 10, nameFr: "Bouira", nameAr: "البويرة", zone: 1 },
-  { code: 11, nameFr: "Tamanrasset", nameAr: "تمنراست", zone: 4 },
-  { code: 12, nameFr: "Tébessa", nameAr: "تبسة", zone: 2 },
-  { code: 13, nameFr: "Tlemcen", nameAr: "تلمسان", zone: 1 },
-  { code: 14, nameFr: "Tiaret", nameAr: "تيارت", zone: 2 },
-  { code: 15, nameFr: "Tizi Ouzou", nameAr: "تيزي وزو", zone: 1 },
-  { code: 16, nameFr: "Alger", nameAr: "الجزائر", zone: 1 },
-  { code: 17, nameFr: "Djelfa", nameAr: "الجلفة", zone: 3 },
-  { code: 18, nameFr: "Jijel", nameAr: "جيجل", zone: 1 },
-  { code: 19, nameFr: "Sétif", nameAr: "سطيف", zone: 2 },
-  { code: 20, nameFr: "Saïda", nameAr: "سعيدة", zone: 2 },
-  { code: 21, nameFr: "Skikda", nameAr: "سكيكدة", zone: 1 },
-  { code: 22, nameFr: "Sidi Bel Abbès", nameAr: "سيدي بلعباس", zone: 2 },
-  { code: 23, nameFr: "Annaba", nameAr: "عنابة", zone: 1 },
-  { code: 24, nameFr: "Guelma", nameAr: "قالمة", zone: 2 },
-  { code: 25, nameFr: "Constantine", nameAr: "قسنطينة", zone: 2 },
-  { code: 26, nameFr: "Médéa", nameAr: "المدية", zone: 2 },
-  { code: 27, nameFr: "Mostaganem", nameAr: "مستغانم", zone: 1 },
-  { code: 28, nameFr: "M'Sila", nameAr: "المسيلة", zone: 2 },
-  { code: 29, nameFr: "Mascara", nameAr: "معسكر", zone: 2 },
-  { code: 30, nameFr: "Ouargla", nameAr: "ورقلة", zone: 3 },
-  { code: 31, nameFr: "Oran", nameAr: "وهران", zone: 1 },
-  { code: 32, nameFr: "El Bayadh", nameAr: "البيض", zone: 3 },
-  { code: 33, nameFr: "Illizi", nameAr: "إليزي", zone: 4 },
-  { code: 34, nameFr: "Bordj Bou Arreridj", nameAr: "برج بوعريريج", zone: 2 },
-  { code: 35, nameFr: "Boumerdès", nameAr: "بومرداس", zone: 1 },
-  { code: 36, nameFr: "El Tarf", nameAr: "الطارف", zone: 1 },
-  { code: 37, nameFr: "Tindouf", nameAr: "تندوف", zone: 4 },
-  { code: 38, nameFr: "Tissemsilt", nameAr: "تيسمسيلت", zone: 2 },
-  { code: 39, nameFr: "El Oued", nameAr: "الوادي", zone: 3 },
-  { code: 40, nameFr: "Khenchela", nameAr: "خنشلة", zone: 2 },
-  { code: 41, nameFr: "Souk Ahras", nameAr: "سوق أهراس", zone: 2 },
-  { code: 42, nameFr: "Tipaza", nameAr: "تيبازة", zone: 1 },
-  { code: 43, nameFr: "Mila", nameAr: "ميلة", zone: 2 },
-  { code: 44, nameFr: "Aïn Defla", nameAr: "عين الدفلى", zone: 2 },
-  { code: 45, nameFr: "Naâma", nameAr: "النعامة", zone: 3 },
-  { code: 46, nameFr: "Aïn Témouchent", nameAr: "عين تموشنت", zone: 1 },
-  { code: 47, nameFr: "Ghardaïa", nameAr: "غرداية", zone: 3 },
-  { code: 48, nameFr: "Relizane", nameAr: "غليزان", zone: 2 },
-  { code: 49, nameFr: "Timimoun", nameAr: "تيميمون", zone: 4 },
-  { code: 50, nameFr: "Bordj Badji Mokhtar", nameAr: "برج باجي مختار", zone: 4 },
-  { code: 51, nameFr: "Ouled Djellal", nameAr: "أولاد جلال", zone: 3 },
-  { code: 52, nameFr: "Béni Abbès", nameAr: "بني عباس", zone: 4 },
-  { code: 53, nameFr: "In Salah", nameAr: "عين صالح", zone: 4 },
-  { code: 54, nameFr: "In Guezzam", nameAr: "عين قزام", zone: 4 },
-  { code: 55, nameFr: "Touggourt", nameAr: "تقرت", zone: 3 },
-  { code: 56, nameFr: "Djanet", nameAr: "جانت", zone: 4 },
-  { code: 57, nameFr: "El M'Ghair", nameAr: "المغير", zone: 3 },
-  { code: 58, nameFr: "El Meniaa", nameAr: "المنيعة", zone: 4 },
-];
-
-// Major communes for the biggest wilayas; every other wilaya gets its capital.
-const EXTRA_COMMUNES: Record<number, string[]> = {
-  16: ["Alger Centre", "Bab El Oued", "Hydra", "Kouba", "El Harrach", "Bab Ezzouar", "Dar El Beïda", "Birkhadem"],
-  31: ["Oran", "Es Senia", "Bir El Djir", "Aïn El Turk", "Arzew"],
-  25: ["Constantine", "El Khroub", "Hamma Bouziane", "Aïn Smara"],
-  9: ["Blida", "Boufarik", "Ouled Yaïch", "Beni Mered"],
-  19: ["Sétif", "El Eulma", "Aïn Oulmene"],
-  23: ["Annaba", "El Bouni", "Sidi Amar"],
-  6: ["Béjaïa", "Akbou", "El Kseur"],
-  15: ["Tizi Ouzou", "Draâ Ben Khedda", "Azazga"],
-  13: ["Tlemcen", "Mansourah", "Chetouane"],
-  5: ["Batna", "Barika", "Aïn Touta"],
-};
-
-// Zone-based shipping pricing (DZD): [home delivery, stop desk, days]
-const ZONE_PRICING: Record<number, [number, number, number]> = {
-  1: [500, 300, 2],
-  2: [600, 400, 3],
-  3: [800, 500, 5],
-  4: [1200, 800, 7],
-};
-
-const PROVIDERS: { provider: ShippingProvider; homeDelta: number; deskDelta: number }[] = [
-  { provider: "YALIDINE", homeDelta: 0, deskDelta: 0 },
-  { provider: "ZR_EXPRESS", homeDelta: 50, deskDelta: 50 },
-  { provider: "POSTE", homeDelta: -100, deskDelta: -50 },
-];
-
-async function seedGeography() {
-  for (const w of WILAYAS) {
-    await prisma.wilaya.upsert({
-      where: { code: w.code },
-      update: { nameFr: w.nameFr, nameAr: w.nameAr, zone: w.zone },
-      create: w,
-    });
-  }
-  console.log(`✓ ${WILAYAS.length} wilayas`);
-
-  for (const w of WILAYAS) {
-    const names = EXTRA_COMMUNES[w.code] ?? [w.nameFr];
-    for (const name of names) {
-      await prisma.commune.upsert({
-        where: { wilayaCode_name: { wilayaCode: w.code, name } },
-        update: {},
-        create: { wilayaCode: w.code, name },
-      });
-    }
-  }
-  console.log("✓ communes");
-}
-
-async function seedShippingRates() {
-  for (const w of WILAYAS) {
-    const [home, desk, days] = ZONE_PRICING[w.zone];
-    for (const p of PROVIDERS) {
-      await prisma.shippingRate.upsert({
-        where: { provider_wilayaCode: { provider: p.provider, wilayaCode: w.code } },
-        update: {},
-        create: {
-          provider: p.provider,
-          wilayaCode: w.code,
-          homeDeliveryPrice: Math.max(home + p.homeDelta, 200),
-          stopDeskPrice: Math.max(desk + p.deskDelta, 150),
-          returnPrice: 200,
-          estimatedDays: days,
-        },
-      });
-    }
-  }
-  console.log(`✓ shipping rates (${PROVIDERS.length} providers × ${WILAYAS.length} wilayas)`);
-}
-
-async function upsertUser(opts: {
-  email: string;
-  password: string;
-  fullName: string;
-  role: "admin" | "seller" | "wilaya_manager" | "accountant" | "agent" | "buyer";
-  phone?: string;
-  wilayaCode?: number;
-}) {
-  const passwordHash = await bcrypt.hash(opts.password, 10);
-  return prisma.profile.upsert({
-    where: { email: opts.email },
-    update: { role: opts.role, wilayaCode: opts.wilayaCode },
-    create: {
-      email: opts.email,
-      phone: opts.phone,
-      passwordHash,
-      fullName: opts.fullName,
-      role: opts.role,
-      wilayaCode: opts.wilayaCode,
-    },
-  });
-}
-
-async function seedUsersAndDemo() {
-  // Default admin required by the spec.
-  const admin = await upsertUser({
-    email: "admin@zeem.dz",
-    password: "ZeemAdmin123",
-    fullName: "Zeem Admin",
-    role: "admin",
-    phone: "0550000000",
-  });
-  console.log("✓ admin (admin@zeem.dz / ZeemAdmin123)");
-
-  // Demo accounts for every role so the whole flow is testable immediately.
-  const seller = await upsertUser({
-    email: "seller@zeem.dz",
-    password: "ZeemDemo123",
-    fullName: "Karim Vendeur",
-    role: "seller",
-    phone: "0551111111",
-  });
-  const manager = await upsertUser({
-    email: "manager@zeem.dz",
-    password: "ZeemDemo123",
-    fullName: "Amine Manager",
-    role: "wilaya_manager",
-    phone: "0552222222",
-    wilayaCode: 16,
-  });
-  await upsertUser({
-    email: "accountant@zeem.dz",
-    password: "ZeemDemo123",
-    fullName: "Salima Comptable",
-    role: "accountant",
-    phone: "0553333333",
-  });
-  await upsertUser({
-    email: "agent@zeem.dz",
-    password: "ZeemDemo123",
-    fullName: "Yacine Livreur",
-    role: "agent",
-    phone: "0554444444",
-    wilayaCode: 16,
-  });
-  await upsertUser({
-    email: "buyer@zeem.dz",
-    password: "ZeemDemo123",
-    fullName: "Nour Acheteuse",
-    role: "buyer",
-    phone: "0555555555",
-  });
-  console.log("✓ demo users (…@zeem.dz / ZeemDemo123)");
-
-  // One approved demo store with products so the storefront is not empty.
-  const store = await prisma.store.upsert({
-    where: { slug: "boutique-el-djazair" },
-    update: { status: "ACTIVE" },
-    create: {
-      name: "Boutique El Djazaïr",
-      slug: "boutique-el-djazair",
-      description: "Produits locaux de qualité, livrés dans les 58 wilayas.",
-      ownerId: seller.id,
-      wilayaCode: 16,
-      status: "ACTIVE",
-      commissionRate: 5,
-      approvedById: manager.id,
-      approvedAt: new Date(),
-    },
-  });
-
-  const demoProducts: {
-    name: string;
-    slug: string;
-    description: string;
-    category: string;
-    basePrice: number;
-    variants: { sku: string; name: string; size?: string; color?: string; price: number; stockQuantity: number }[];
-  }[] = [
-    {
-      name: "Djellaba traditionnelle",
-      slug: "djellaba-traditionnelle",
-      description: "Djellaba artisanale en coton, confectionnée à la main.",
-      category: "Mode",
-      basePrice: 4500,
-      variants: [
-        { sku: "DJL-M-BLC", name: "M / Blanc", size: "M", color: "Blanc", price: 4500, stockQuantity: 20 },
-        { sku: "DJL-L-BLC", name: "L / Blanc", size: "L", color: "Blanc", price: 4500, stockQuantity: 15 },
-        { sku: "DJL-M-BLE", name: "M / Bleu", size: "M", color: "Bleu", price: 4800, stockQuantity: 10 },
-      ],
-    },
-    {
-      name: "Écouteurs sans fil Pro",
-      slug: "ecouteurs-sans-fil-pro",
-      description: "Écouteurs Bluetooth 5.3, autonomie 30h, réduction de bruit.",
-      category: "Électronique",
-      basePrice: 6500,
-      variants: [
-        { sku: "ECT-NOIR", name: "Noir", color: "Noir", price: 6500, stockQuantity: 40 },
-        { sku: "ECT-BLANC", name: "Blanc", color: "Blanc", price: 6500, stockQuantity: 35 },
-      ],
-    },
-    {
-      name: "Service à café en céramique",
-      slug: "service-cafe-ceramique",
-      description: "Service à café 12 pièces, motif traditionnel algérien.",
-      category: "Maison",
-      basePrice: 3200,
-      variants: [
-        { sku: "CAF-12P", name: "12 pièces", price: 3200, stockQuantity: 25 },
-      ],
-    },
-    {
-      name: "Huile d'argan pure 100 ml",
-      slug: "huile-argan-pure-100ml",
-      description: "Huile d'argan 100% naturelle, pressée à froid.",
-      category: "Beauté",
-      basePrice: 1800,
-      variants: [
-        { sku: "ARG-100", name: "100 ml", price: 1800, stockQuantity: 60 },
-      ],
-    },
-    {
-      name: "Ballon de football Pro",
-      slug: "ballon-football-pro",
-      description: "Ballon taille 5, cousu machine, usage intensif.",
-      category: "Sport",
-      basePrice: 2500,
-      variants: [
-        { sku: "BAL-T5", name: "Taille 5", price: 2500, stockQuantity: 30 },
-      ],
-    },
-  ];
-
-  for (const p of demoProducts) {
-    await prisma.product.upsert({
-      where: { slug: p.slug },
-      update: {},
-      create: {
-        storeId: store.id,
-        name: p.name,
-        slug: p.slug,
-        description: p.description,
-        category: p.category,
-        basePrice: p.basePrice,
-        variants: { create: p.variants },
-      },
-    });
-  }
-  console.log(`✓ demo store + ${demoProducts.length} products`);
-
-  await prisma.auditLog.create({
-    data: {
-      actorId: admin.id,
-      action: "DATABASE_SEEDED",
-      entityType: "System",
-      entityId: "seed",
-      after: { wilayas: WILAYAS.length },
-    },
-  });
-}
+const prisma = new PrismaClient()
 
 async function main() {
-  console.log("🌱 Seeding Zeem Marketplace…");
-  await seedGeography();
-  await seedShippingRates();
-  await seedUsersAndDemo();
-  console.log("✅ Seed complete");
+  console.log('🌱 Seeding Zeem Marketplace database...')
+
+  // 1. Delete existing data (clean slate)
+  // NOTE (fix): children first — the provided list missed several tables and
+  // would fail on foreign-key constraints.
+  await prisma.deliveryLocationUpdate.deleteMany()
+  await prisma.pointsTransaction.deleteMany()
+  await prisma.loyaltyPoints.deleteMany()
+  await prisma.auditLog.deleteMany()
+  await prisma.review.deleteMany()
+  await prisma.transaction.deleteMany()
+  await prisma.shipment.deleteMany()
+  await prisma.orderItem.deleteMany()
+  await prisma.order.deleteMany()
+  await prisma.productVariant.deleteMany()
+  await prisma.product.deleteMany()
+  await prisma.store.deleteMany()
+  await prisma.shippingRate.deleteMany()
+  await prisma.commune.deleteMany()
+  await prisma.wilaya.deleteMany()
+  await prisma.profile.deleteMany()
+
+  // 2. Seed 58 Wilayas with their Communes
+  const wilayasData = [
+    { code: 1, name: 'Adrar', communes: ['Adrar', 'Tamest', 'Reggane'] },
+    { code: 2, name: 'Chlef', communes: ['Chlef', 'Ténès', 'Oued Fodda'] },
+    { code: 3, name: 'Laghouat', communes: ['Laghouat', 'Aflou', 'Kheneg'] },
+    { code: 4, name: 'Oum El Bouaghi', communes: ['Oum El Bouaghi', "Aïn M'lila", 'Khenchela'] },
+    { code: 5, name: 'Batna', communes: ['Batna', 'Barika', "N'Gaous"] },
+    { code: 6, name: 'Béjaïa', communes: ['Béjaïa', 'Akbou', 'El Kseur'] },
+    { code: 7, name: 'Biskra', communes: ['Biskra', 'Tolga', 'Sidi Okba'] },
+    { code: 8, name: 'Béchar', communes: ['Béchar', 'Kenadsa', 'El Ouata'] },
+    { code: 9, name: 'Blida', communes: ['Blida', 'Ouled Yaïch', 'Boufarik'] },
+    { code: 10, name: 'Bouira', communes: ['Bouira', 'Aïn El Hadjar', 'Lakhdaria'] },
+    { code: 11, name: 'Tamanrasset', communes: ['Tamanrasset', 'In Salah', 'In Guezzam'] },
+    { code: 12, name: 'Tébessa', communes: ['Tébessa', 'Bir El Ater', 'El Ogla'] },
+    { code: 13, name: 'Tlemcen', communes: ['Tlemcen', 'Maghnia', 'Mansourah'] },
+    { code: 14, name: 'Tiaret', communes: ['Tiaret', 'Sougueur', 'Aïn Deheb'] },
+    { code: 15, name: 'Tizi Ouzou', communes: ['Tizi Ouzou', 'Draâ Ben Khedda', 'Boghni'] },
+    { code: 16, name: 'Alger', communes: ['Alger Centre', 'Bab Ezzouar', 'Dar El Beïda', 'Hussein Dey', 'Kouba', 'Birkhadem', 'Dely Ibrahim'] },
+    { code: 17, name: 'Djelfa', communes: ['Djelfa', 'Aïn Oussera', 'Messaad'] },
+    { code: 18, name: 'Jijel', communes: ['Jijel', 'El Milia', 'Chekfa'] },
+    { code: 19, name: 'Sétif', communes: ['Sétif', 'El Eulma', 'Aïn Arnat'] },
+    { code: 20, name: 'Saïda', communes: ['Saïda', 'Aïn El Hadjar', 'Sidi Boubekeur'] },
+    { code: 21, name: 'Skikda', communes: ['Skikda', 'El Harrouch', 'Azzaba'] },
+    { code: 22, name: 'Sidi Bel Abbès', communes: ['Sidi Bel Abbès', 'Ténira', 'El Haçaiba'] },
+    { code: 23, name: 'Annaba', communes: ['Annaba', 'El Hadjar', 'Berrahal'] },
+    { code: 24, name: 'Guelma', communes: ['Guelma', 'Bou Hamdane', 'Héliopolis'] },
+    { code: 25, name: 'Constantine', communes: ['Constantine', 'El Khroub', 'Aïn Abid'] },
+    { code: 26, name: 'Médéa', communes: ['Médéa', 'Berrouaghia', 'Khemis El Khechna'] },
+    { code: 27, name: 'Mostaganem', communes: ['Mostaganem', 'Aïn Sefra', 'Sidi Lakhdar'] },
+    { code: 28, name: "M'Sila", communes: ["M'Sila", 'Bou Saâda', 'Khoubana'] },
+    { code: 29, name: 'Mascara', communes: ['Mascara', 'Sig', 'Tizi'] },
+    { code: 30, name: 'Ouargla', communes: ['Ouargla', 'Rouissat', "N'Goussa"] },
+    { code: 31, name: 'Oran', communes: ['Oran', 'Es Sénia', 'Bir El Djir', 'Arzew'] },
+    { code: 32, name: 'El Bayadh', communes: ['El Bayadh', 'Brézina', 'Rogassa'] },
+    { code: 33, name: 'Illizi', communes: ['Illizi', 'Debdeb', 'In Amenas'] },
+    { code: 34, name: 'Bordj Bou Arreridj', communes: ['Bordj Bou Arreridj', "M'sila", 'El Anceur'] },
+    { code: 35, name: 'Boumerdès', communes: ['Boumerdès', 'Boudouaou', 'Dellys'] },
+    { code: 36, name: 'El Tarf', communes: ['El Tarf', 'Bouhadjar', "Ben M'hidi"] },
+    { code: 37, name: 'Tindouf', communes: ['Tindouf'] },
+    { code: 38, name: 'Tissemsilt', communes: ['Tissemsilt', 'Bougara', 'Lardjem'] },
+    { code: 39, name: 'El Oued', communes: ['El Oued', 'Debila', 'Guerba'] },
+    { code: 40, name: 'Khenchela', communes: ['Khenchela', 'Chetma', 'Ouled Rechache'] },
+    { code: 41, name: 'Souk Ahras', communes: ['Souk Ahras', "M'daourouch", 'Taoura'] },
+    { code: 42, name: 'Tipaza', communes: ['Tipaza', 'Cherchell', 'Koléa'] },
+    { code: 43, name: 'Mila', communes: ['Mila', 'Chelghoum Laïd', 'Aïn Beïda'] },
+    { code: 44, name: 'Aïn Defla', communes: ['Aïn Defla', 'Miliana', 'El Attaf'] },
+    { code: 45, name: 'Naâma', communes: ['Naâma', 'Mécheria', 'Aïn Séfra'] },
+    { code: 46, name: 'Aïn Témouchent', communes: ['Aïn Témouchent', 'El Malah', 'Hammam Bou Hadjar'] },
+    { code: 47, name: 'Ghardaïa', communes: ['Ghardaïa', 'Berriane', 'El Ménia'] },
+    { code: 48, name: 'Relizane', communes: ['Relizane', 'Mazouna', 'Oued Rhiou'] },
+    { code: 49, name: 'Timimoun', communes: ['Timimoun', 'Charouine', 'Ouled Saïd'] },
+    { code: 50, name: 'Bordj Badji Mokhtar', communes: ['Bordj Badji Mokhtar'] },
+    { code: 51, name: 'Ouled Djellal', communes: ['Ouled Djellal', 'Sidi Khaled'] },
+    { code: 52, name: 'Béni Abbès', communes: ['Béni Abbès', 'Kéris'] },
+    { code: 53, name: 'In Salah', communes: ['In Salah'] },
+    { code: 54, name: 'In Guezzam', communes: ['In Guezzam'] },
+    { code: 55, name: 'Touggourt', communes: ['Touggourt', 'Témacine'] },
+    { code: 56, name: 'Djanet', communes: ['Djanet'] },
+    { code: 57, name: 'El Menia', communes: ['El Menia'] },
+    { code: 58, name: "El M'Ghair", communes: ["El M'Ghair", 'Djamaa'] },
+  ]
+
+  for (const w of wilayasData) {
+    await prisma.wilaya.create({
+      data: {
+        code: w.code,
+        name: w.name,
+        communes: {
+          create: w.communes.map((c) => ({ name: c })),
+        },
+      },
+    })
+    console.log(`✅ Created Wilaya ${w.code}: ${w.name} (${w.communes.length} communes)`)
+  }
+
+  // 3. Create Default Admin User
+  // NOTE (fix): the provided seed hashed the password but never stored it,
+  // which would make admin login impossible. It is stored in passwordHash.
+  const adminPassword = await bcrypt.hash('ZeemAdmin123', 10)
+  await prisma.profile.create({
+    data: {
+      userId: 'admin-zeem-default',
+      email: 'admin@zeem.dz',
+      phone: '+21300000000',
+      passwordHash: adminPassword,
+      fullName: 'Super Admin',
+      role: 'ADMIN',
+      isVerified: true,
+    },
+  })
+  console.log(`✅ Created Admin user: admin@zeem.dz`)
+
+  // 4. Create Default Shipping Rates for ALL Wilayas
+  const couriers = ['YALIDINE', 'ZR_EXPRESS', 'POSTE']
+  const allWilayas = await prisma.wilaya.findMany()
+
+  for (const wilaya of allWilayas) {
+    for (const courier of couriers) {
+      let basePrice = 250
+      let pricePerKg = 50
+
+      // Remote/Desert Wilayas cost more
+      if ([11, 33, 37, 49, 50, 53, 54, 56, 57].includes(wilaya.code)) {
+        basePrice = 1200
+        pricePerKg = 100
+      } else if ([1, 2, 3, 4, 8, 17, 26, 30, 39, 40, 44].includes(wilaya.code)) {
+        basePrice = 400
+        pricePerKg = 60
+      }
+
+      await prisma.shippingRate.create({
+        data: {
+          wilayaCode: wilaya.code,
+          courierType: courier,
+          basePrice: basePrice,
+          pricePerKg: pricePerKg,
+          estimatedDays: basePrice > 1000 ? '5-7' : '2-3',
+        },
+      })
+    }
+  }
+  console.log(`✅ Created default shipping rates for ${allWilayas.length} wilayas x ${couriers.length} couriers`)
+
+  console.log('🎉 Seeding complete!')
 }
 
 main()
   .catch((e) => {
-    console.error(e);
-    process.exit(1);
+    console.error('❌ Seeding failed:', e)
+    process.exit(1)
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    await prisma.$disconnect()
+  })

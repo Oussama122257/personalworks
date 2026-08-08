@@ -3,16 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 
 export interface CommuneDTO {
-  id: string;
+  id: number;
   name: string;
-  nameAr?: string | null;
 }
 
 export interface WilayaDTO {
   code: number;
-  nameFr: string;
-  nameAr: string;
-  zone: number;
+  name: string;
+  nameAr?: string | null;
   communes: CommuneDTO[];
 }
 

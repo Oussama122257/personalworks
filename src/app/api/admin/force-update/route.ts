@@ -7,9 +7,10 @@ import { serialize } from "@/lib/utils";
 const orderUpdateSchema = z.object({
   entity: z.literal("order"),
   id: z.string().min(1),
+  reason: z.string().min(3).max(300),
   data: z.object({
     status: z
-      .enum(["PENDING", "CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED", "FAILED"])
+      .enum(["PENDING", "CONFIRMED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"])
       .optional(),
     totalAmount: z.coerce.number().min(0).optional(),
   }),
@@ -18,29 +19,31 @@ const orderUpdateSchema = z.object({
 const productUpdateSchema = z.object({
   entity: z.literal("product"),
   id: z.string().min(1),
+  reason: z.string().min(3).max(300),
   data: z.object({
     name: z.string().min(2).optional(),
-    basePrice: z.coerce.number().min(1).optional(),
     isPublished: z.boolean().optional(),
+    category: z.string().min(2).optional(),
   }),
 });
 
 const schema = z.discriminatedUnion("entity", [orderUpdateSchema, productUpdateSchema]);
 
-/** ADMIN-only "god mode": force-edit an order or product, fully audited. */
+/** ADMIN-only "god mode": force-edit an order or product. Reason is mandatory
+ *  and every change is written to the audit log. */
 export async function POST(req: NextRequest) {
-  const { session, error } = await requireRole(["admin"]);
+  const { session, error } = await requireRole(["ADMIN"]);
   if (error) return error;
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid payload", details: parsed.error.flatten() },
+      { error: "Invalid payload (a reason is mandatory for god-mode edits)", details: parsed.error.flatten() },
       { status: 400 }
     );
   }
-  const { entity, id, data } = parsed.data;
+  const { entity, id, data, reason } = parsed.data;
 
   const result = await prisma.$transaction(async (tx) => {
     if (entity === "order") {
@@ -49,12 +52,14 @@ export async function POST(req: NextRequest) {
       const after = await tx.order.update({ where: { id }, data });
       await tx.auditLog.create({
         data: {
-          actorId: session.user.id,
-          action: "ADMIN_FORCE_UPDATE_ORDER",
-          entityType: "Order",
+          userId: session.user.id,
+          userRole: "ADMIN",
+          action: "STATUS_CHANGE",
+          entity: "ORDER",
           entityId: id,
-          before: { status: before.status, totalAmount: Number(before.totalAmount) },
-          after: { status: after.status, totalAmount: Number(after.totalAmount) },
+          oldState: { status: before.status, totalAmount: before.totalAmount },
+          newState: { status: after.status, totalAmount: after.totalAmount },
+          reason,
         },
       });
       return after;
@@ -64,20 +69,22 @@ export async function POST(req: NextRequest) {
     const after = await tx.product.update({ where: { id }, data });
     await tx.auditLog.create({
       data: {
-        actorId: session.user.id,
-        action: "ADMIN_FORCE_UPDATE_PRODUCT",
-        entityType: "Product",
+        userId: session.user.id,
+        userRole: "ADMIN",
+        action: "UPDATE",
+        entity: "PRODUCT",
         entityId: id,
-        before: {
+        oldState: {
           name: before.name,
-          basePrice: Number(before.basePrice),
           isPublished: before.isPublished,
+          category: before.category,
         },
-        after: {
+        newState: {
           name: after.name,
-          basePrice: Number(after.basePrice),
           isPublished: after.isPublished,
+          category: after.category,
         },
+        reason,
       },
     });
     return after;

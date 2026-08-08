@@ -174,7 +174,7 @@ export default function AccountantDashboard() {
                 {orders?.slice(0, 15).map((o) => (
                   <TableRow key={o.id}>
                     <TableCell className="font-mono text-xs">{o.reference}</TableCell>
-                    <TableCell>{o.guestName ?? "—"}</TableCell>
+                    <TableCell>{o.buyer?.fullName ?? o.guestName ?? "—"}</TableCell>
                     <TableCell>{formatDZD(o.totalAmount)}</TableCell>
                     <TableCell className="text-right">
                       <InvoiceDownloadButton order={o} />

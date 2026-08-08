@@ -10,10 +10,12 @@ import {
   RotateCcw,
   Wand2,
   TrendingUp,
+  UserPlus,
 } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { useOrders } from "@/hooks/useOrders";
 import { useRealtime } from "@/hooks/useRealtime";
+import { useWilayas } from "@/hooks/useWilayas";
 import { formatDZD } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +61,7 @@ interface AuditLogDTO {
   action: string;
   entityType: string;
   entityId: string;
+  reason?: string | null;
   createdAt: string;
 }
 
@@ -69,8 +72,7 @@ const ORDER_STATUSES = [
   "SHIPPED",
   "DELIVERED",
   "CANCELLED",
-  "REFUNDED",
-  "FAILED",
+  "RETURNED",
 ];
 
 function GodModeDialog({ onDone }: { onDone: () => void }) {
@@ -78,7 +80,8 @@ function GodModeDialog({ onDone }: { onDone: () => void }) {
   const [entity, setEntity] = useState<"order" | "product">("order");
   const [id, setId] = useState("");
   const [status, setStatus] = useState("");
-  const [price, setPrice] = useState("");
+  const [published, setPublished] = useState("");
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -87,11 +90,11 @@ function GodModeDialog({ onDone }: { onDone: () => void }) {
       const data =
         entity === "order"
           ? { ...(status ? { status } : {}) }
-          : { ...(price ? { basePrice: Number(price) } : {}) };
+          : { ...(published ? { isPublished: published === "true" } : {}) };
       const res = await fetch("/api/admin/force-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entity, id, data }),
+        body: JSON.stringify({ entity, id, data, reason }),
       });
       const out = await res.json();
       if (!res.ok) {
@@ -116,8 +119,8 @@ function GodModeDialog({ onDone }: { onDone: () => void }) {
           <DialogHeader>
             <DialogTitle>⚡ God Mode — édition forcée</DialogTitle>
             <DialogDescription>
-              Modifie directement une commande ou un produit. Chaque action est
-              consignée dans le journal d&apos;audit.
+              Modifie directement une commande ou un produit. Le motif est
+              obligatoire et chaque action est consignée dans le journal d&apos;audit.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -155,16 +158,172 @@ function GodModeDialog({ onDone }: { onDone: () => void }) {
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label>Nouveau prix de base (DZD)</Label>
-                <Input
-                  type="number"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                />
+                <Label>Publication</Label>
+                <Select value={published} onValueChange={setPublished}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choisir" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Publié</SelectItem>
+                    <SelectItem value="false">Dépublié</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
-            <Button className="w-full" disabled={!id || busy} onClick={submit}>
+            <div className="space-y-1.5">
+              <Label>Motif (obligatoire)</Label>
+              <Input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Ex : correction suite à réclamation client"
+              />
+            </div>
+            <Button
+              className="w-full"
+              disabled={!id || reason.length < 3 || busy}
+              onClick={submit}
+            >
               Appliquer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function CreateStaffDialog({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { data: wilayas } = useWilayas();
+  const [form, setForm] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    password: "",
+    role: "AGENT",
+    wilayaCode: "",
+  });
+
+  const needsWilaya = form.role === "AGENT" || form.role === "WILAYA_MANAGER";
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          wilayaCode: form.wilayaCode ? Number(form.wilayaCode) : undefined,
+        }),
+      });
+      const out = await res.json();
+      if (!res.ok) {
+        toast.error(out.error ?? "Échec de la création");
+        return;
+      }
+      toast.success("Compte personnel créé");
+      setOpen(false);
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <UserPlus /> Nouveau membre
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Créer un compte personnel</DialogTitle>
+            <DialogDescription>
+              Managers de wilaya, livreurs, comptables et managers ERP.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Rôle</Label>
+              <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WILAYA_MANAGER">Manager de wilaya</SelectItem>
+                  <SelectItem value="AGENT">Livreur</SelectItem>
+                  <SelectItem value="ACCOUNTANT">Comptable</SelectItem>
+                  <SelectItem value="ERP_MANAGER">Manager ERP</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Nom complet</Label>
+              <Input
+                value={form.fullName}
+                onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Téléphone</Label>
+                <Input
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Mot de passe (8+ caractères)</Label>
+              <Input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+              />
+            </div>
+            {needsWilaya && (
+              <div className="space-y-1.5">
+                <Label>Wilaya</Label>
+                <Select
+                  value={form.wilayaCode}
+                  onValueChange={(v) => setForm({ ...form, wilayaCode: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choisir une wilaya" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {wilayas?.map((w) => (
+                      <SelectItem key={w.code} value={String(w.code)}>
+                        {w.code} — {w.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <Button
+              className="w-full"
+              disabled={
+                busy ||
+                !form.fullName ||
+                !form.email ||
+                !form.phone ||
+                form.password.length < 8 ||
+                (needsWilaya && !form.wilayaCode)
+              }
+              onClick={submit}
+            >
+              Créer le compte
             </Button>
           </div>
         </DialogContent>
@@ -212,7 +371,10 @@ export default function AdminDashboard() {
     <div className="container space-y-6 py-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Vue d&apos;ensemble de la plateforme</h1>
-        <GodModeDialog onDone={refreshAll} />
+        <div className="flex gap-2">
+          <CreateStaffDialog onDone={refreshAll} />
+          <GodModeDialog onDone={refreshAll} />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -237,7 +399,7 @@ export default function AdminDashboard() {
           icon={Store}
         />
         <StatCard
-          title="Taux de remboursement"
+          title="Taux de retour"
           value={stats ? `${stats.refundRate}%` : "…"}
           icon={RotateCcw}
         />
@@ -258,7 +420,7 @@ export default function AdminDashboard() {
                   <TableHead>#</TableHead>
                   <TableHead>Boutique</TableHead>
                   <TableHead>Wilaya</TableHead>
-                  <TableHead>Commandes</TableHead>
+                  <TableHead>Colis</TableHead>
                   <TableHead className="text-right">CA</TableHead>
                 </TableRow>
               </TableHeader>
@@ -294,7 +456,7 @@ export default function AdminDashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Réf.</TableHead>
-                  <TableHead>Boutique</TableHead>
+                  <TableHead>Wilaya</TableHead>
                   <TableHead>Statut</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                 </TableRow>
@@ -303,13 +465,20 @@ export default function AdminDashboard() {
                 {orders?.slice(0, 8).map((o) => (
                   <TableRow key={o.id}>
                     <TableCell className="font-mono text-xs">{o.reference}</TableCell>
-                    <TableCell>{o.store.name}</TableCell>
+                    <TableCell>{o.wilaya?.name ?? "—"}</TableCell>
                     <TableCell>
                       <Badge variant="secondary">{o.status}</Badge>
                     </TableCell>
                     <TableCell className="text-right">{formatDZD(o.totalAmount)}</TableCell>
                   </TableRow>
                 ))}
+                {(!orders || orders.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      Aucune commande
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -329,6 +498,7 @@ export default function AdminDashboard() {
                 <TableHead>Acteur</TableHead>
                 <TableHead>Action</TableHead>
                 <TableHead>Entité</TableHead>
+                <TableHead>Motif</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -344,11 +514,14 @@ export default function AdminDashboard() {
                   <TableCell className="text-xs">
                     {l.entityType} · {l.entityId.slice(0, 10)}…
                   </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {l.reason ?? "—"}
+                  </TableCell>
                 </TableRow>
               ))}
               {(!logs || logs.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
                     Aucune entrée
                   </TableCell>
                 </TableRow>

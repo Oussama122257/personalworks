@@ -8,11 +8,13 @@ import { Badge } from "@/components/ui/badge";
 export const dynamic = "force-dynamic";
 
 const ROLE_LABEL: Record<string, string> = {
-  admin: "Administrateur",
-  seller: "Vendeur",
-  wilaya_manager: "Manager de wilaya",
-  accountant: "Comptable",
-  agent: "Livreur",
+  ADMIN: "Administrateur",
+  SELLER: "Vendeur",
+  WILAYA_MANAGER: "Manager de wilaya",
+  ACCOUNTANT: "Comptable",
+  AGENT: "Livreur",
+  ERP_MANAGER: "Manager ERP",
+  BUYER: "Acheteur",
 };
 
 export default async function DashboardLayout({

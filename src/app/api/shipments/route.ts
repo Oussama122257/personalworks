@@ -6,17 +6,17 @@ import type { Prisma } from "@prisma/client";
 
 /**
  * Role-scoped shipment listing.
- *  - agent: shipments assigned to them + unassigned pickups in their wilaya
- *  - admin/accountant: all shipments (optional ?status= filter)
+ *  - AGENT: shipments assigned to them + unassigned pickups in their wilaya
+ *  - ADMIN/ACCOUNTANT: all shipments (optional ?status= filter)
  */
 export async function GET(req: NextRequest) {
-  const { session, error } = await requireRole(["agent", "admin", "accountant"]);
+  const { session, error } = await requireRole(["AGENT", "ADMIN", "ACCOUNTANT"]);
   if (error) return error;
 
   const status = req.nextUrl.searchParams.get("status");
   const where: Prisma.ShipmentWhereInput = {};
 
-  if (session.user.role === "agent") {
+  if (session.user.role === "AGENT") {
     where.OR = [
       { agentId: session.user.id },
       {
@@ -35,11 +35,21 @@ export async function GET(req: NextRequest) {
     include: {
       order: {
         include: {
-          commune: true,
-          wilaya: true,
-          variant: { include: { product: { select: { name: true } } } },
+          wilaya: { select: { name: true } },
+          items: {
+            include: {
+              variant: {
+                select: {
+                  sku: true,
+                  attributes: true,
+                  product: { select: { name: true } },
+                },
+              },
+            },
+          },
         },
       },
+      seller: { select: { name: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 100,

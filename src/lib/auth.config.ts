@@ -8,13 +8,14 @@ import type { NextAuthConfig } from "next-auth";
 export const authConfig = {
   pages: { signIn: "/login" },
   session: { strategy: "jwt" },
+  secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET,
   trustHost: true,
   providers: [],
   callbacks: {
     session({ session, token }) {
       if (session.user) {
         session.user.id = (token.id as string) ?? token.sub ?? "";
-        session.user.role = (token.role as string) ?? "buyer";
+        session.user.role = (token.role as string) ?? "BUYER";
         session.user.wilayaCode = (token.wilayaCode as number | null) ?? null;
       }
       return session;

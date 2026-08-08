@@ -13,7 +13,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { session, error } = await requireRole(["wilaya_manager", "admin"]);
+  const { session, error } = await requireRole(["WILAYA_MANAGER", "ADMIN"]);
   if (error) return error;
 
   const { id } = await params;
@@ -29,36 +29,33 @@ export async function PUT(
   }
   // Managers can only act on stores in their own wilaya.
   if (
-    session.user.role === "wilaya_manager" &&
+    session.user.role === "WILAYA_MANAGER" &&
     session.user.wilayaCode !== store.wilayaCode
   ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const status =
-    parsed.data.action === "approve"
-      ? "ACTIVE"
-      : parsed.data.action === "reject"
-        ? "REJECTED"
-        : "SUSPENDED";
+  const isActive = parsed.data.action === "approve";
 
   const updated = await prisma.$transaction(async (tx) => {
     const updated = await tx.store.update({
       where: { id },
       data: {
-        status,
-        approvedById: parsed.data.action === "approve" ? session.user.id : store.approvedById,
-        approvedAt: parsed.data.action === "approve" ? new Date() : store.approvedAt,
+        isActive,
+        // approvedBy records who took the decision (approval or rejection),
+        // distinguishing decided stores from still-pending ones.
+        approvedBy: session.user.id,
       },
     });
     await tx.auditLog.create({
       data: {
-        actorId: session.user.id,
-        action: `STORE_${parsed.data.action.toUpperCase()}`,
-        entityType: "Store",
+        userId: session.user.id,
+        userRole: session.user.role as "WILAYA_MANAGER" | "ADMIN",
+        action: "STATUS_CHANGE",
+        entity: "STORE",
         entityId: id,
-        before: { status: store.status },
-        after: { status },
+        oldState: { isActive: store.isActive },
+        newState: { isActive, decision: parsed.data.action },
       },
     });
     return updated;

@@ -7,7 +7,8 @@ export async function GET() {
     where: { isActive: true },
     include: {
       communes: {
-        select: { id: true, name: true, nameAr: true },
+        where: { isActive: true },
+        select: { id: true, name: true },
         orderBy: { name: "asc" },
       },
     },

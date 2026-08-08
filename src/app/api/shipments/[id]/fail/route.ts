@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/api-auth";
-import { processDeliveryFailure, FulfillmentError } from "@/lib/fulfillment";
+import { failDelivery, FulfillmentError } from "@/lib/fulfillment";
 
 const failSchema = z.object({
   reason: z.string().min(2).max(200),
@@ -12,7 +12,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { session, error } = await requireRole(["agent"]);
+  const { session, error } = await requireRole(["AGENT"]);
   if (error) return error;
 
   const { id } = await params;
@@ -23,7 +23,7 @@ export async function PUT(
   }
 
   try {
-    await processDeliveryFailure({
+    await failDelivery({
       shipmentId: id,
       agentId: session.user.id,
       reason: parsed.data.reason,

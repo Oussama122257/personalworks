@@ -33,7 +33,7 @@ function LoginForm() {
     email: "",
     phone: "",
     password: "",
-    role: "buyer",
+    role: "BUYER",
     storeName: "",
     wilayaCode: "",
   });
@@ -150,8 +150,8 @@ function LoginForm() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="buyer">Acheteur</SelectItem>
-                      <SelectItem value="seller">Vendeur</SelectItem>
+                      <SelectItem value="BUYER">Acheteur</SelectItem>
+                      <SelectItem value="SELLER">Vendeur</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -196,7 +196,7 @@ function LoginForm() {
                     onChange={(e) => setReg({ ...reg, password: e.target.value })}
                   />
                 </div>
-                {reg.role === "seller" && (
+                {reg.role === "SELLER" && (
                   <>
                     <div className="space-y-1.5">
                       <Label htmlFor="storeName">Nom de la boutique</Label>
@@ -219,7 +219,7 @@ function LoginForm() {
                         <SelectContent>
                           {wilayas?.map((w) => (
                             <SelectItem key={w.code} value={String(w.code)}>
-                              {w.code} — {w.nameFr}
+                              {w.code} — {w.name}
                             </SelectItem>
                           ))}
                         </SelectContent>

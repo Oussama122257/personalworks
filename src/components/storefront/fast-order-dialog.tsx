@@ -68,7 +68,7 @@ export function FastOrderDialog({
           guestName: form.guestName,
           phone: form.phone,
           wilayaCode: Number(form.wilayaCode),
-          communeId: form.communeId,
+          communeId: Number(form.communeId),
           address: form.address,
         }),
       });
@@ -135,7 +135,7 @@ export function FastOrderDialog({
               <SelectContent>
                 {wilayas?.map((w) => (
                   <SelectItem key={w.code} value={String(w.code)}>
-                    {w.code} — {w.nameFr}
+                    {w.code} — {w.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -154,7 +154,7 @@ export function FastOrderDialog({
               </SelectTrigger>
               <SelectContent>
                 {communes.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
+                  <SelectItem key={c.id} value={String(c.id)}>
                     {c.name}
                   </SelectItem>
                 ))}

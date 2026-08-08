@@ -5,17 +5,13 @@ import { round2 } from "@/lib/utils";
 
 /** ACCOUNTANT/ADMIN: COD reconciliation — expected vs collected cash. */
 export async function GET() {
-  const { error } = await requireRole(["accountant", "admin"]);
+  const { error } = await requireRole(["ACCOUNTANT", "ADMIN"]);
   if (error) return error;
 
-  const [delivered, expected, pendingPayouts, commissions] = await Promise.all([
+  const [delivered, pendingPayouts, commissions] = await Promise.all([
     prisma.shipment.aggregate({
-      _sum: { collectedAmount: true },
+      _sum: { actualCollected: true, codAmount: true },
       _count: { id: true },
-      where: { status: "DELIVERED_COD_COLLECTED" },
-    }),
-    prisma.shipment.aggregate({
-      _sum: { codAmount: true },
       where: { status: "DELIVERED_COD_COLLECTED" },
     }),
     prisma.transaction.aggregate({
@@ -30,18 +26,18 @@ export async function GET() {
     }),
   ]);
 
-  const collected = Number(delivered._sum.collectedAmount ?? 0);
-  const expectedTotal = Number(expected._sum.codAmount ?? 0);
+  const collected = delivered._sum.actualCollected ?? 0;
+  const expectedTotal = delivered._sum.codAmount ?? 0;
 
   return NextResponse.json({
     deliveredShipments: delivered._count.id,
     codExpected: expectedTotal,
     codCollected: collected,
     codVariance: round2(collected - expectedTotal),
-    pendingPayoutsTotal: Number(pendingPayouts._sum.amount ?? 0),
+    pendingPayoutsTotal: pendingPayouts._sum.amount ?? 0,
     pendingPayoutsCount: pendingPayouts._count.id,
     commissions: Object.fromEntries(
-      commissions.map((c) => [c.type, Number(c._sum.amount ?? 0)])
+      commissions.map((c) => [c.type, c._sum.amount ?? 0])
     ),
   });
 }

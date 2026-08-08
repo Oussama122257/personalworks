@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/lib/auth.config";
 
@@ -9,7 +10,8 @@ import { authConfig } from "@/lib/auth.config";
 // the edge middleware read the role without a database round-trip. Users are
 // persisted in the `Profile` table via Prisma — Google sign-ins are upserted
 // in the signIn callback below (the stock @auth/prisma-adapter expects a
-// `User` model with different fields, so persistence is done explicitly).
+// `User` model whose fields conflict with `Profile`, so persistence is done
+// explicitly).
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   providers: [
@@ -29,7 +31,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             OR: [{ email: identifier.toLowerCase() }, { phone: identifier }],
           },
         });
-        if (!profile?.passwordHash || !profile.isActive) return null;
+        if (!profile?.passwordHash) return null;
 
         const valid = await bcrypt.compare(password, profile.passwordHash);
         if (!valid) return null;
@@ -58,19 +60,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async signIn({ user, account }) {
       if (account?.provider === "google") {
         if (!user.email) return false;
-        const profile = await prisma.profile.upsert({
-          where: { email: user.email.toLowerCase() },
-          update: {
-            avatarUrl: user.image ?? undefined,
-          },
-          create: {
-            email: user.email.toLowerCase(),
-            fullName: user.name ?? user.email,
+        const email = user.email.toLowerCase();
+        const existing = await prisma.profile.findUnique({ where: { email } });
+        if (existing) {
+          user.id = existing.id;
+          return true;
+        }
+        // Profile.phone is required+unique; OAuth gives no phone, so store a
+        // unique placeholder the user can replace from their profile later.
+        const profile = await prisma.profile.create({
+          data: {
+            userId: account.providerAccountId ?? randomUUID(),
+            email,
+            phone: `google:${randomUUID()}`,
+            fullName: user.name ?? email,
             avatarUrl: user.image,
-            role: "buyer",
+            role: "BUYER",
+            isVerified: true,
           },
         });
-        if (!profile.isActive) return false;
         user.id = profile.id;
       }
       return true;

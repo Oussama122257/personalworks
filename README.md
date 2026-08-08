@@ -7,81 +7,103 @@ Full-stack marketplace for Algeria (58 wilayas) built with **Next.js 15 (App Rou
 
 All data lives in PostgreSQL — every API route reads/writes through Prisma.
 
-## Quick start
+## Setup
 
 ```bash
-# 1. Install
+# 1. Install dependencies
 npm install
 
-# 2. Configure — edit .env.local (DATABASE_URL, AUTH_SECRET at minimum)
-openssl rand -base64 32   # → AUTH_SECRET
+# 2. Generate Prisma Client
+npx prisma generate
 
-# 3. Create the schema and seed (58 wilayas, communes, shipping rates, users)
-npm run db:push
-npm run db:seed
+# 3. Create the migration and apply to database
+npx prisma migrate dev --name init
 
-# 4. Run
+# 4. Run the seed script to populate Wilayas and Admin
+npx prisma db seed
+
+# 5. Start the development server
 npm run dev
 ```
 
-## Seeded accounts
+Before step 3, point `DATABASE_URL` at your PostgreSQL instance. It appears in
+**two** files and both must match:
+
+| File | Read by | Contains |
+|---|---|---|
+| `.env` | the Prisma CLI (`migrate`, `db seed`, `studio`) | `DATABASE_URL` only |
+| `.env.local` | the Next.js app | `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, optional keys |
+
+Generate a real secret with `openssl rand -base64 32` and put it in
+`NEXTAUTH_SECRET`.
+
+### After seeding
+
+The seed creates the geography and **one** account:
 
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@zeem.dz` | `ZeemAdmin123` |
-| Seller | `seller@zeem.dz` | `ZeemDemo123` |
-| Wilaya manager (Alger, 16) | `manager@zeem.dz` | `ZeemDemo123` |
-| Accountant | `accountant@zeem.dz` | `ZeemDemo123` |
-| Delivery agent (Alger, 16) | `agent@zeem.dz` | `ZeemDemo123` |
-| Buyer | `buyer@zeem.dz` | `ZeemDemo123` |
 
-A demo store (« Boutique El Djazaïr », approved, wilaya 16) with 5 products is
-seeded so the storefront works immediately.
+Sign in as the admin, then create staff (wilaya managers, delivery agents,
+accountants) from the admin dashboard's **Nouveau membre** button, which posts to
+`POST /api/admin/users`. Sellers self-register at `/login` → *Inscription* →
+*Vendeur*; their store starts inactive and a wilaya manager approves it before
+they can publish products.
 
-## Architecture
+## Database layer
 
-- `prisma/schema.prisma` — 15 models: Profile, Wilaya, Commune, Store, Product,
-  ProductVariant, Order, Shipment, Transaction, ShippingRate, LoyaltyPoints,
-  PointsTransaction, AuditLog, Review, DeliveryLocationUpdate.
-- `src/lib/auth.ts` — NextAuth v5 (JWT sessions): credentials (email/phone +
-  password, bcrypt) and Google OAuth (auto-enabled when `GOOGLE_CLIENT_*` are
-  set). The user's `role` is read from `Profile` at login and attached to the
-  session.
-- `src/middleware.ts` — role-based access control on `/dashboard/*`
-  (admin/seller/manager/accountant/agent each locked to their own area, buyers
-  redirected to `/`).
-- `src/lib/fulfillment.ts` — COD settlement in one DB transaction: commission
-  split (80% platform owner / 20% wilaya manager), seller payout + store balance
-  credit, loyalty points (1 pt / 100 DZD), audit log.
-- `src/lib/store.ts` — Zustand stores (session + cart), hydrated from
-  `/api/auth/session`; `src/app/providers.tsx` — TanStack Query provider.
-- `src/lib/realtime.ts` + `src/hooks/useRealtime.ts` — Pusher broadcasting
-  (orders channel for admin, `store-{id}` for sellers, `agent-{id}` for agents).
-  No-ops gracefully when Pusher isn't configured.
-- `src/lib/pixel.ts` — server-side Meta Pixel (Conversions API) `Purchase`
-  events on fast orders. No-ops when unset.
-- `POST /api/upload` — image uploads to `public/uploads` (swap for S3/UploadThing
-  in production).
+`prisma/schema.prisma` — 15 models: Profile, Wilaya, Commune, Store, Product,
+ProductVariant, Order, OrderItem, Shipment, Transaction, ShippingRate,
+LoyaltyPoints, PointsTransaction, AuditLog, Review, DeliveryLocationUpdate,
+plus 9 enums (Role, OrderStatus, CheckoutType, ShipmentStatus, TransType,
+TransStatus, PointsType, ReviewStatus).
 
-## Core API routes
+Seeded data: 58 wilayas, 163 communes, 174 shipping rates (3 couriers ×
+58 wilayas, priced by remoteness: 250 DZD base, 400 for semi-remote, 1200 for
+desert wilayas).
+
+`src/lib/fulfillment.ts` holds the critical COD money logic. `completeDelivery()`
+runs in a single Prisma transaction:
+
+1. marks the shipment `DELIVERED_COD_COLLECTED` with the collected amount, agent
+   and GPS breadcrumb;
+2. flips the order to `DELIVERED` once every shipment on it is delivered;
+3. splits `totalAmount × store.commissionRate / 100` into 80% `COMMISSION_OWNER`
+   and 20% `COMMISSION_MANAGER` (both `PAID`), plus a `PAYOUT` row (`PENDING`)
+   of `totalAmount − commission − shippingFee`;
+4. credits the store balance;
+5. awards the buyer 1 loyalty point per 100 DZD (registered buyers only).
+
+## API routes
 
 | Route | Access | Purpose |
 |---|---|---|
-| `POST /api/orders/fast` | public | COD checkout: creates Order + Shipment, decrements stock atomically, fires Meta Pixel + realtime |
-| `PUT /api/shipments/[id]/deliver` | agent | COD collected → commission split + payout + loyalty points |
-| `PUT /api/shipments/[id]/fail` | agent | failed delivery with reason |
+| `POST /api/orders/fast` | public | COD checkout: Order + OrderItem + Shipment, atomic stock decrement, Meta Pixel + realtime |
+| `PUT /api/shipments/[id]/deliver` | AGENT | COD collected → commission split, payout, loyalty points |
+| `PUT /api/shipments/[id]/fail` | AGENT | failed delivery with reason |
 | `GET /api/products/search?q=&wilayaCode=` | public | case-insensitive search, wilaya filter |
-| `GET /api/admin/stats` | admin | GMV, orders, top stores, month-over-month growth |
+| `GET /api/admin/stats` | ADMIN | GMV, orders, top stores, month-over-month growth |
+| `POST /api/admin/users` | ADMIN | create staff accounts |
+| `POST /api/admin/force-update` | ADMIN | god-mode edits (reason mandatory, audited) |
 | `GET /api/wilayas` | public | 58 wilayas + communes |
-| `GET/POST/PUT/DELETE /api/seller/products*` | seller | product & variant management |
-| `GET/PUT /api/seller/store` | seller | shipping settings (ZEEM_DEFAULT vs custom) |
-| `GET /api/manager/stores` + `PUT …/[id]` | manager | seller approvals |
-| `GET /api/accountant/reconciliation` | accountant | COD reconciliation |
-| `GET /api/accountant/payouts?format=csv` | accountant | bulk payout CSV |
-| `POST /api/admin/force-update` | admin | god-mode edits (audited) |
+| `GET/POST/PUT/DELETE /api/seller/products*` | SELLER | product & variant management |
+| `GET/PUT /api/seller/store` | SELLER | delivery provider settings |
+| `GET /api/manager/stores` + `PUT …/[id]` | WILAYA_MANAGER | seller approvals |
+| `GET /api/accountant/reconciliation` | ACCOUNTANT | COD reconciliation |
+| `GET /api/accountant/payouts?format=csv` | ACCOUNTANT | bulk payout CSV |
+
+## Auth & access control
+
+NextAuth v5 with JWT sessions: credentials (email **or** phone + bcrypt
+password) and Google OAuth (auto-enabled when `GOOGLE_CLIENT_*` are set). The
+role is read from `Profile` at login and attached to the session, so
+`src/middleware.ts` can enforce `/dashboard/*` access at the edge without a
+database round-trip. Each role is locked to its own area; buyers are redirected
+to the storefront.
 
 ## Deployment notes
 
-- Set a real `AUTH_SECRET` and `DATABASE_URL`; add Google/Pusher/Meta keys as needed.
-- Use `prisma migrate deploy` in production instead of `db push`.
-- `public/uploads` storage is ephemeral on serverless hosts — plug in S3/UploadThing.
+- Use `prisma migrate deploy` in production instead of `migrate dev`.
+- `public/uploads` is ephemeral on serverless hosts — plug in S3/UploadThing.
+- Store `customApiKey` / `customApiSecret` encrypted at rest before going live.

@@ -17,13 +17,15 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontFamily: "Helvetica-Bold", marginBottom: 12 },
   row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#e5e5e5", paddingVertical: 6 },
   headRow: { flexDirection: "row", borderBottomWidth: 2, borderBottomColor: "#000", paddingVertical: 6, fontFamily: "Helvetica-Bold" },
-  cell: { flex: 1 },
   cellRight: { flex: 1, textAlign: "right" },
   total: { marginTop: 16, textAlign: "right", fontSize: 13, fontFamily: "Helvetica-Bold" },
   footer: { position: "absolute", bottom: 30, left: 40, right: 40, fontSize: 9, color: "#888", textAlign: "center" },
 });
 
 function InvoiceDocument({ order }: { order: OrderDTO }) {
+  const shippingFee = order.shipments.reduce((s, sh) => s + sh.shippingFee, 0);
+  const sellers = [...new Set(order.shipments.map((s) => s.seller.name))].join(", ");
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -38,12 +40,13 @@ function InvoiceDocument({ order }: { order: OrderDTO }) {
         <Text style={styles.title}>Facture — Paiement à la livraison</Text>
 
         <View style={{ marginBottom: 16 }}>
-          <Text>Client : {order.guestName ?? "—"}</Text>
-          <Text>Téléphone : {order.phone}</Text>
+          <Text>Client : {order.buyer?.fullName ?? order.guestName ?? "—"}</Text>
+          <Text>Téléphone : {order.guestPhone ?? "—"}</Text>
           <Text>
-            Adresse : {order.address}, {order.commune.name}, {order.wilaya.nameFr}
+            Adresse : {order.address}
+            {order.wilaya ? `, ${order.wilaya.name}` : ""}
           </Text>
-          <Text>Vendeur : {order.store.name}</Text>
+          <Text>Vendeur(s) : {sellers || "—"}</Text>
         </View>
 
         <View style={styles.headRow}>
@@ -52,21 +55,21 @@ function InvoiceDocument({ order }: { order: OrderDTO }) {
           <Text style={styles.cellRight}>PU (DZD)</Text>
           <Text style={styles.cellRight}>Total (DZD)</Text>
         </View>
-        <View style={styles.row}>
-          <Text style={{ flex: 3 }}>
-            {order.variant.product.name} ({order.variant.name})
-          </Text>
-          <Text style={styles.cellRight}>{order.quantity}</Text>
-          <Text style={styles.cellRight}>{order.unitPrice.toFixed(2)}</Text>
-          <Text style={styles.cellRight}>
-            {(order.unitPrice * order.quantity).toFixed(2)}
-          </Text>
-        </View>
+        {order.items.map((item) => (
+          <View style={styles.row} key={item.id}>
+            <Text style={{ flex: 3 }}>
+              {item.variant.product.name} ({item.variant.sku})
+            </Text>
+            <Text style={styles.cellRight}>{item.quantity}</Text>
+            <Text style={styles.cellRight}>{item.price.toFixed(2)}</Text>
+            <Text style={styles.cellRight}>{(item.price * item.quantity).toFixed(2)}</Text>
+          </View>
+        ))}
         <View style={styles.row}>
           <Text style={{ flex: 3 }}>Frais de livraison</Text>
           <Text style={styles.cellRight}>—</Text>
           <Text style={styles.cellRight}>—</Text>
-          <Text style={styles.cellRight}>{order.shippingFee.toFixed(2)}</Text>
+          <Text style={styles.cellRight}>{shippingFee.toFixed(2)}</Text>
         </View>
 
         <Text style={styles.total}>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/api-auth";
-import { processDelivery, FulfillmentError } from "@/lib/fulfillment";
+import { completeDelivery, FulfillmentError } from "@/lib/fulfillment";
 
 const deliverSchema = z.object({
   collectedAmount: z.coerce.number().min(0),
@@ -14,7 +14,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { session, error } = await requireRole(["agent"]);
+  const { session, error } = await requireRole(["AGENT"]);
   if (error) return error;
 
   const { id } = await params;
@@ -28,14 +28,14 @@ export async function PUT(
   }
 
   try {
-    const result = await processDelivery({
+    const result = await completeDelivery({
       shipmentId: id,
       agentId: session.user.id,
       collectedAmount: parsed.data.collectedAmount,
       lat: parsed.data.lat,
       lng: parsed.data.lng,
     });
-    return NextResponse.json({ success: true, settlement: result });
+    return NextResponse.json({ success: true, settlement: result.settlement });
   } catch (err) {
     if (err instanceof FulfillmentError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
