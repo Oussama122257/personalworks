@@ -7,35 +7,109 @@ Full-stack marketplace for Algeria (58 wilayas) built with **Next.js 15 (App Rou
 
 All data lives in PostgreSQL — every API route reads/writes through Prisma.
 
-## Setup
+## Local setup
+
+Requires **Node 20+** (Next 15 needs `^18.18 || >=20`) and **PostgreSQL 14+**.
+
+### 1. Start PostgreSQL
+
+**macOS (Homebrew):**
 
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Generate Prisma Client
-npx prisma generate
-
-# 3. Create the migration and apply to database
-npx prisma migrate dev --name init
-
-# 4. Run the seed script to populate Wilayas and Admin
-npx prisma db seed
-
-# 5. Start the development server
-npm run dev
+brew install postgresql@16
+brew services start postgresql@16
 ```
 
-Before step 3, point `DATABASE_URL` at your PostgreSQL instance. It appears in
-**two** files and both must match:
+If `psql` is not found, add it to your PATH:
+
+```bash
+echo 'export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+```
+
+To run it in a dedicated terminal tab with live logs instead of as a
+background service, stop the service first (both would fight for port 5432):
+
+```bash
+brew services stop postgresql@16
+postgres -D "$(brew --prefix)/var/postgresql@16"     # Ctrl+C to stop
+```
+
+**Linux:** `sudo service postgresql start`.
+
+### 2. Create the role and database
+
+> **macOS gotcha:** Homebrew does not create a `postgres` user — it creates a
+> superuser named after your macOS account, with no password. The committed
+> `DATABASE_URL` expects `postgres:password`, so without this step you get
+> `role "postgres" does not exist`.
+
+```bash
+createuser -s postgres
+psql -d postgres -c "ALTER USER postgres PASSWORD 'password';"
+createdb -O postgres zeem_db
+```
+
+Alternatively, keep your own account and edit **both** `.env` and `.env.local`
+to `postgresql://YOUR_MAC_USERNAME@localhost:5432/zeem_db`, then `createdb zeem_db`.
+
+### 3. Install dependencies
+
+```bash
+npm install     # postinstall runs `prisma generate` for you
+```
+
+### 4. Configure environment
+
+`DATABASE_URL` appears in **two** files and both must match — Prisma's CLI reads
+`.env`, Next.js reads `.env.local`:
 
 | File | Read by | Contains |
 |---|---|---|
-| `.env` | the Prisma CLI (`migrate`, `db seed`, `studio`) | `DATABASE_URL` only |
+| `.env` | Prisma CLI (`migrate`, `db seed`, `studio`) | `DATABASE_URL` only |
 | `.env.local` | the Next.js app | `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, optional keys |
 
-Generate a real secret with `openssl rand -base64 32` and put it in
-`NEXTAUTH_SECRET`.
+Generate a real auth secret and paste it into `NEXTAUTH_SECRET` in `.env.local`
+— the committed placeholder will not work:
+
+```bash
+openssl rand -base64 32
+```
+
+### 5. Create the schema and seed
+
+```bash
+npx prisma migrate deploy    # applies the committed migrations
+npm run db:seed              # 58 wilayas, 163 communes, 174 shipping rates, admin
+```
+
+Use `migrate deploy`, not `migrate dev` — the migrations already exist, and
+`dev` may offer to reset your database.
+
+### 6. Run
+
+```bash
+npm run dev                  # http://localhost:3000
+```
+
+A typical layout is three terminal tabs: PostgreSQL, `npm run dev`, and
+`npx prisma studio` (a database browser on `localhost:5555`).
+
+### Verifying
+
+```bash
+pg_isready                                            # accepting connections
+psql -d zeem_db -c "SELECT count(*) FROM wilayas;"    # 58
+```
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `role "postgres" does not exist` | Step 2 was skipped — see the macOS gotcha above. |
+| `Environment variable not found: DATABASE_URL` | Running a Prisma command without `.env` present. |
+| `Can't reach database server at localhost:5432` | PostgreSQL is not running: `brew services start postgresql@16`. |
+| `postmaster.pid already exists` / `address already in use` | An instance is already running — usually the brew service. Stop it, or skip the foreground tab. |
+| Storefront shows no products | Expected on a fresh install: the seed creates no products. Register a seller, approve the store, then add products. |
 
 ### After seeding
 
