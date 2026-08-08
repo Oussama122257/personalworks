@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 import { round2 } from "@/lib/utils";
+import { getSettings } from "@/lib/settings";
 
-const VAT_RATE = 0.19;
+
 
 /**
  * ACCOUNTANT/ADMIN: invoice data for one seller over a period.
@@ -18,6 +19,7 @@ export async function GET(
   if (error) return error;
 
   const { storeId } = await params;
+  const VAT_RATE = (await getSettings("fiscal")).vatRate / 100;
   const from = req.nextUrl.searchParams.get("from");
   const to = req.nextUrl.searchParams.get("to");
 

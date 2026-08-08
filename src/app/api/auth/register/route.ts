@@ -62,14 +62,20 @@ export async function POST(req: NextRequest) {
     if (data.role === "SELLER") {
       const baseSlug = slugify(data.storeName!) || "store";
       const slug = `${baseSlug}-${profile.id.slice(-6)}`;
-      // New stores await wilaya-manager approval (isActive: false).
+      // Stores normally await wilaya-manager approval, unless that manager
+      // has switched auto-approval on for their wilaya.
+      const regional = await tx.wilayaSettings.findUnique({
+        where: { wilayaCode: data.wilayaCode! },
+      });
+      const autoApprove = regional?.autoApproveSellers ?? false;
       await tx.store.create({
         data: {
           name: data.storeName!,
           slug,
           userId: profile.id,
           wilayaCode: data.wilayaCode!,
-          isActive: false,
+          isActive: autoApprove,
+          approvedBy: autoApprove ? "AUTO_APPROVED" : null,
         },
       });
     }

@@ -93,6 +93,55 @@ runs in a single Prisma transaction:
 nine actors, so `LOGISTICS_MANAGER` and `SUPPORT` were added — without them
 those two actors had no way to sign in.
 
+## Settings & customization
+
+Each actor has a settings page; every value is stored in PostgreSQL and read
+back at request time, so a saved change takes effect immediately.
+
+| Actor | Settings route |
+|---|---|
+| Super Admin | `/dashboard/admin/settings` |
+| Wilaya Manager | `/dashboard/manager/settings` |
+| Seller | `/dashboard/seller/settings` |
+| Buyer | `/profile/settings` |
+| Accountant | `/dashboard/accountant/settings` |
+| ERP Manager | `/dashboard/erp/settings` |
+| Logistics Manager | `/dashboard/logistics/settings` |
+| Delivery Agent | `/dashboard/agent/settings` |
+| Customer Support | `/dashboard/support/settings` |
+
+Storage: `SystemSetting` (one JSON row per group, with typed defaults in
+`src/lib/settings.ts` so a fresh install works before anything is saved),
+`UserPreferences` (per-user), `EmailTemplate`, `Address`, `CannedResponse`,
+`Courier`, `WilayaSettings` and `LoginEvent`.
+
+**Settings that change behaviour, not just state:**
+
+- Owner/manager commission split drives `completeDelivery()`; the API rejects a
+  split that doesn't total 100%, since anything else silently loses money.
+- Platform name and theme colours feed the page title, favicon and CSS tokens.
+- Maintenance mode redirects everyone except admins to `/maintenance`.
+- Guest-checkout and loyalty flags gate the checkout and points logic.
+- Free-shipping thresholds (store override, then platform default) and the
+  wilaya manager's regional surcharge both price real orders.
+- Max delivery attempts drives the agent's retry-to-return policy.
+- VAT rate and COD tolerance drive reconciliation and invoices.
+- ERP delimiter, auto-publish, export columns and filename pattern drive
+  import/export.
+- Support keywords auto-escalate matching tickets to URGENT; auto-assign
+  routes them round-robin or least-busy.
+
+**Security notes.** Courier and seller API credentials are AES-encrypted at
+rest and only ever returned masked (`••••2345`). Two-factor uses TOTP
+(`otplib`) with a QR code. Sessions are JWTs, so there is no server-side
+session list to enumerate — "sign out everywhere" bumps
+`Profile.sessionsValidFrom` and the JWT callback rejects older tokens, which
+genuinely revokes every session; the page shows login history instead of a
+per-device kill switch. Phone changes require an SMS OTP.
+
+**Template editing** is HTML source with a live preview pane, not a rich-text
+toolbar — no WYSIWYG editor dependency ships with the app.
+
 ## Scheduled jobs
 
 Next.js ships no scheduler, so two endpoints need an external trigger (Vercel

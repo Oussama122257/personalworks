@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 import { recordAudit } from "@/lib/audit";
 import { slugify } from "@/lib/utils";
+import { getSettings } from "@/lib/settings";
 
 /**
  * ERP bulk catalogue import.
@@ -41,10 +42,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Fichier CSV manquant" }, { status: 400 });
   }
 
+  const erpSettings = await getSettings("erp");
   const text = await file.text();
   const parsed = Papa.parse<Row>(text, {
     header: true,
     skipEmptyLines: true,
+    delimiter: erpSettings.csvDelimiter,
     transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, "_"),
   });
 
@@ -144,7 +147,7 @@ export async function POST(req: NextRequest) {
                 description: row.description?.trim() || null,
                 isPublished: row.published
                   ? /^(1|true|oui|yes)$/i.test(row.published.trim())
-                  : true,
+                  : erpSettings.autoPublishImported,
               },
               select: { id: true },
             });

@@ -6,6 +6,7 @@ import { generateReference, round2, serialize } from "@/lib/utils";
 import { trackServerEvent } from "@/lib/pixel";
 import { broadcast } from "@/lib/realtime";
 import { pickAgentForWilaya } from "@/lib/assignment";
+import { getSettings } from "@/lib/settings";
 
 const fastOrderSchema = z.object({
   variantId: z.string().min(1),
@@ -18,7 +19,6 @@ const fastOrderSchema = z.object({
 });
 
 const FALLBACK_SHIPPING_FEE = 500;
-const OWNER_SPLIT = 0.8;
 
 /** One-click COD checkout: creates Order + OrderItem + Shipment, decrements stock. */
 export async function POST(req: NextRequest) {
@@ -32,6 +32,19 @@ export async function POST(req: NextRequest) {
   }
   const input = parsed.data;
   const session = await auth();
+
+  // Guest checkout can be switched off platform-wide.
+  const [features, shippingDefaults, general] = await Promise.all([
+    getSettings("features"),
+    getSettings("shipping"),
+    getSettings("general"),
+  ]);
+  if (!features.guestCheckout && !session?.user) {
+    return NextResponse.json(
+      { error: "La commande sans compte est désactivée — connectez-vous pour continuer." },
+      { status: 403 }
+    );
+  }
 
   const variant = await prisma.productVariant.findUnique({
     where: { id: input.variantId },
@@ -67,9 +80,17 @@ export async function POST(req: NextRequest) {
   const rate = await prisma.shippingRate.findFirst({
     where: { wilayaCode: input.wilayaCode, courierType: courier, isActive: true },
   });
-  const shippingFee = rate ? rate.basePrice : FALLBACK_SHIPPING_FEE;
+  // Regional surcharge set by the wilaya manager, then the free-shipping
+  // threshold (store override first, platform default otherwise).
+  const regional = await prisma.wilayaSettings.findUnique({
+    where: { wilayaCode: input.wilayaCode },
+  });
+  const baseShipping =
+    (rate ? rate.basePrice : FALLBACK_SHIPPING_FEE) + (regional?.shippingSurcharge ?? 0);
 
   const itemsTotal = round2(variant.price * input.quantity);
+  const freeThreshold = store.freeShippingThreshold ?? shippingDefaults.freeShippingThreshold;
+  const shippingFee = freeThreshold > 0 && itemsTotal >= freeThreshold ? 0 : baseShipping;
   const totalAmount = round2(itemsTotal + shippingFee);
   const platformFee = round2(totalAmount * (store.commissionRate / 100));
   const reference = generateReference("ZM");
@@ -93,8 +114,8 @@ export async function POST(req: NextRequest) {
           guestPhone: input.phone,
           totalAmount,
           platformFee,
-          ownerShare: round2(platformFee * OWNER_SPLIT),
-          managerShare: round2(platformFee * (1 - OWNER_SPLIT)),
+          ownerShare: round2(platformFee * (general.ownerShare / 100)),
+          managerShare: round2(platformFee * (general.managerShare / 100)),
           status: "PENDING",
           checkoutType: "FAST",
           wilayaCode: input.wilayaCode,

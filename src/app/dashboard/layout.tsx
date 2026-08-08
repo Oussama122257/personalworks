@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Zap, LogOut, Store } from "lucide-react";
+import { Zap, LogOut, Store, Settings } from "lucide-react";
 import { auth, signOut } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,17 @@ const ROLE_LABEL: Record<string, string> = {
   BUYER: "Acheteur",
 };
 
+const SETTINGS_HREF: Record<string, string> = {
+  ADMIN: "/dashboard/admin/settings",
+  SELLER: "/dashboard/seller/settings",
+  WILAYA_MANAGER: "/dashboard/manager/settings",
+  ACCOUNTANT: "/dashboard/accountant/settings",
+  AGENT: "/dashboard/agent/settings",
+  ERP_MANAGER: "/dashboard/erp/settings",
+  LOGISTICS_MANAGER: "/dashboard/logistics/settings",
+  SUPPORT: "/dashboard/support/settings",
+};
+
 export default async function DashboardLayout({
   children,
 }: {
@@ -26,6 +37,8 @@ export default async function DashboardLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login?callbackUrl=/dashboard");
+
+  const settingsHref = SETTINGS_HREF[session.user.role] ?? null;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -40,6 +53,13 @@ export default async function DashboardLayout({
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {session.user.name ?? session.user.email}
             </span>
+            {settingsHref && (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href={settingsHref}>
+                  <Settings /> Réglages
+                </Link>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" asChild>
               <Link href="/">
                 <Store /> Boutique

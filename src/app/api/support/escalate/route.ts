@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 import { notify, templates } from "@/lib/notifications";
+import { getSettings } from "@/lib/settings";
 
 /**
  * Escalation sweep: any ticket left OPEN longer than the SLA is flagged, an
@@ -23,7 +24,12 @@ export async function POST(req: NextRequest) {
     actorId = session.user.id;
   }
 
-  const hours = Number(process.env.SUPPORT_ESCALATION_HOURS ?? 24);
+  // Threshold comes from the support settings page; the env var is the
+  // fallback for a fresh install that has never saved settings.
+  const supportSettings = await getSettings("support");
+  const hours =
+    supportSettings.escalateAfterHours ||
+    Number(process.env.SUPPORT_ESCALATION_HOURS ?? 24);
   const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
 
   const stale = await prisma.supportTicket.findMany({

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { serialize } from "@/lib/utils";
 import { ProductDetail, type ProductWithReviews } from "@/components/storefront/product-detail";
+import { assertNotInMaintenance } from "@/lib/maintenance";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export default async function ProductPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  await assertNotInMaintenance();
   const { slug } = await params;
 
   const product = await prisma.product.findUnique({

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/api-auth";
 import { generateReference, serialize } from "@/lib/utils";
+import { getSettings } from "@/lib/settings";
 import type { Prisma } from "@prisma/client";
 
 /** SUPPORT/ADMIN: ticket queue. */
@@ -63,6 +64,48 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // High-priority keywords bump the ticket automatically when enabled.
+  const supportSettings = await getSettings("support");
+  let priority = data.priority;
+  if (supportSettings.autoTagHighPriority) {
+    const keywords = supportSettings.highPriorityKeywords
+      .split(",")
+      .map((k) => k.trim().toLowerCase())
+      .filter(Boolean);
+    const haystack = `${data.subject} ${data.body}`.toLowerCase();
+    if (keywords.some((k) => haystack.includes(k))) {
+      priority = "URGENT";
+    }
+  }
+
+  // Round-robin / least-busy assignment when the team enabled it.
+  let assignedToId: string | null = null;
+  if (supportSettings.autoAssignTickets) {
+    const agents = await prisma.profile.findMany({
+      where: { role: "SUPPORT" },
+      select: { id: true },
+    });
+    if (agents.length > 0) {
+      const loads = await prisma.supportTicket.groupBy({
+        by: ["assignedToId"],
+        _count: { id: true },
+        where: {
+          assignedToId: { in: agents.map((a) => a.id) },
+          status: { in: ["OPEN", "PENDING"] },
+        },
+      });
+      const loadById = new Map(loads.map((l) => [l.assignedToId as string, l._count.id]));
+      if (supportSettings.routingAlgorithm === "ROUND_ROBIN") {
+        const total = await prisma.supportTicket.count();
+        assignedToId = agents[total % agents.length].id;
+      } else {
+        assignedToId = agents
+          .map((a) => ({ id: a.id, load: loadById.get(a.id) ?? 0 }))
+          .sort((a, b) => a.load - b.load)[0].id;
+      }
+    }
+  }
+
   let orderId: string | null = null;
   let shipmentId: string | null = null;
   if (data.orderReference) {
@@ -81,8 +124,9 @@ export async function POST(req: NextRequest) {
     data: {
       reference: generateReference("ZS"),
       subject: data.subject,
-      priority: data.priority,
+      priority,
       status: "OPEN",
+      assignedToId,
       buyerId: session?.user?.id ?? null,
       contactName: data.contactName ?? session?.user?.name ?? null,
       contactPhone: data.contactPhone ?? null,

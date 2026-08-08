@@ -20,5 +20,7 @@ declare module "next-auth/jwt" {
     id?: string;
     role?: string;
     wilayaCode?: number | null;
+    /** Epoch ms when the token was minted; compared to sessionsValidFrom. */
+    issuedAt?: number;
   }
 }

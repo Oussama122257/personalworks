@@ -34,6 +34,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!profile?.passwordHash) return null;
 
         const valid = await bcrypt.compare(password, profile.passwordHash);
+        // Every attempt is recorded so the security page can show the history.
+        await prisma.loginEvent.create({
+          data: { profileId: profile.id, success: valid },
+        });
         if (!valid) return null;
 
         return {
@@ -95,7 +99,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.id = profile.id;
           token.role = profile.role;
           token.wilayaCode = profile.wilayaCode;
+          token.issuedAt = Date.now();
         }
+        return token;
+      }
+
+      // On subsequent requests, honour "sign out everywhere": a token issued
+      // before sessionsValidFrom is no longer trusted.
+      if (token.id) {
+        const profile = await prisma.profile.findUnique({
+          where: { id: token.id as string },
+          select: { sessionsValidFrom: true, role: true, wilayaCode: true },
+        });
+        if (!profile) return null;
+        if (
+          profile.sessionsValidFrom &&
+          (!token.issuedAt ||
+            (token.issuedAt as number) < profile.sessionsValidFrom.getTime())
+        ) {
+          return null;
+        }
+        // Keep role/wilaya fresh so an admin change takes effect immediately.
+        token.role = profile.role;
+        token.wilayaCode = profile.wilayaCode;
       }
       return token;
     },

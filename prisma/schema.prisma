@@ -34,6 +34,20 @@ model Profile {
   ticketsOpened      SupportTicket[]          @relation("TicketBuyer")
   ticketsAssigned    SupportTicket[]          @relation("TicketAssignee")
   ticketMessages     TicketMessage[]
+  // Settings & security
+  dateOfBirth        DateTime?
+  twoFactorSecret    String?
+  twoFactorEnabled   Boolean                  @default(false)
+  /// JWTs issued before this instant are rejected — backs "sign out everywhere".
+  sessionsValidFrom  DateTime?
+  isOnline           Boolean                  @default(true)
+  workingHoursStart  String?
+  workingHoursEnd    String?
+  phoneOtpCode       String?
+  phoneOtpExpiresAt  DateTime?
+  preferences        UserPreferences?
+  addresses          Address[]
+  loginEvents        LoginEvent[]
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
 
@@ -42,57 +56,83 @@ model Profile {
 
 // ------------------- GEOGRAPHY (ALGERIA) -------------------
 model Wilaya {
-  code          Int            @id
+  code          Int             @id
   name          String
   nameAr        String?
-  isActive      Boolean        @default(true)
+  isActive      Boolean         @default(true)
   communes      Commune[]
   stores        Store[]
   shippingRates ShippingRate[]
   orders        Order[]
+  addresses     Address[]
+  settings      WilayaSettings?
 
   @@map("wilayas")
 }
 
 model Commune {
-  id         Int     @id @default(autoincrement())
+  id         Int       @id @default(autoincrement())
   name       String
   wilayaCode Int
-  wilaya     Wilaya  @relation(fields: [wilayaCode], references: [code])
-  isActive   Boolean @default(true)
+  wilaya     Wilaya    @relation(fields: [wilayaCode], references: [code])
+  isActive   Boolean   @default(true)
+  addresses  Address[]
 
   @@map("communes")
 }
 
 // ------------------- STORES & VENDORS -------------------
 model Store {
-  id                   String        @id @default(cuid())
-  userId               String        @unique
-  user                 Profile       @relation(fields: [userId], references: [id])
-  name                 String
-  slug                 String        @unique
-  description          String?
-  logoUrl              String?
-  wilayaCode           Int
-  wilaya               Wilaya        @relation(fields: [wilayaCode], references: [code])
-  address              String?
-  commissionRate       Float         @default(10.0)
-  isActive             Boolean       @default(false)
-  approvedBy           String? // Profile ID of Wilaya Manager who approved
-  rejectionReason      String? // Reason shown to the seller when rejected
-  rib                  String? // Bank account (RIB) for payout transfers
-  balance              Float         @default(0.0)
+  id                    String        @id @default(cuid())
+  userId                String        @unique
+  user                  Profile       @relation(fields: [userId], references: [id])
+  name                  String
+  slug                  String        @unique
+  description           String?
+  logoUrl               String?
+  wilayaCode            Int
+  wilaya                Wilaya        @relation(fields: [wilayaCode], references: [code])
+  address               String?
+  commissionRate        Float         @default(10.0)
+  isActive              Boolean       @default(false)
+  approvedBy            String? // Profile ID of Wilaya Manager who approved
+  rejectionReason       String? // Reason shown to the seller when rejected
+  rib                   String? // Bank account (RIB) for payout transfers
+  balance               Float         @default(0.0)
   // Custom Delivery API Settings
-  deliveryProviderType String        @default("ZEEM_DEFAULT")
-  customApiKey         String? // Will be encrypted in production
-  customApiSecret      String?
-  customAccountNumber  String?
+  deliveryProviderType  String        @default("ZEEM_DEFAULT")
+  customApiKey          String? // Will be encrypted in production
+  customApiSecret       String?
+  customAccountNumber   String?
+  customProviderName    String?
+  // Store profile
+  bannerUrl             String?
+  contactPhone          String?
+  socialLinks           Json          @default("{}")
+  // Fulfillment defaults
+  processingTime        String        @default("48h")
+  freeShippingThreshold Float?
+  defaultStockThreshold Int           @default(5)
+  defaultTaxRate        Float         @default(19)
+  skuPattern            String        @default("{STORE}-{CAT}-{COLOR}-{SIZE}")
+  aiDescriptionEnabled  Boolean       @default(true)
+  autoConfirmOrders     Boolean       @default(false)
+  autoPrintWaybill      Boolean       @default(false)
+  defaultCourier        String        @default("YALIDINE")
+  // Payouts
+  payoutFrequency       String        @default("MONTHLY")
+  minPayoutThreshold    Float         @default(1000)
+  invoiceDetails        String?
+  // Returns
+  returnPolicy          String?
+  returnWindowDays      Int           @default(14)
+  returnShippingFee     String        @default("BUYER_PAYS")
   // Relations
-  products             Product[]
-  shipments            Shipment[]
-  transactions         Transaction[]
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  products              Product[]
+  shipments             Shipment[]
+  transactions          Transaction[]
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
   @@map("stores")
 }
@@ -520,4 +560,126 @@ model TicketMessage {
 
   @@index([ticketId])
   @@map("ticket_messages")
+}
+
+// ------------------- SETTINGS & CUSTOMIZATION -------------------
+
+/// Platform-wide settings, one row per key. Values are JSON so a group
+/// (features, theme, shipping defaults…) can evolve without a migration.
+/// Read through src/lib/settings.ts, which supplies typed defaults.
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("system_settings")
+}
+
+/// Customisable email/SMS bodies. `key` matches the TemplateKey union.
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  subject   String
+  bodyHtml  String
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@map("email_templates")
+}
+
+/// Per-user preferences. Common fields are columns; role-specific extras
+/// (agent EOD, support routing, manager payout…) live in the JSON blobs.
+model UserPreferences {
+  id                 String   @id @default(cuid())
+  profileId          String   @unique
+  profile            Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  language           String   @default("fr")
+  darkMode           Boolean  @default(false)
+  promoSms           Boolean  @default(true)
+  promoEmail         Boolean  @default(true)
+  autoApplyPoints    Boolean  @default(false)
+  defaultOrderFilter String   @default("ALL")
+  showCodBanner      Boolean  @default(true)
+  notifications      Json     @default("{}")
+  settings           Json     @default("{}")
+  updatedAt          DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+/// Buyer address book.
+model Address {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  label       String   @default("Domicile")
+  fullName    String?
+  phone       String?
+  wilayaCode  Int
+  wilaya      Wilaya   @relation(fields: [wilayaCode], references: [code])
+  communeId   Int
+  commune     Commune  @relation(fields: [communeId], references: [id])
+  addressLine String
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([profileId])
+  @@map("addresses")
+}
+
+/// Support quick replies.
+model CannedResponse {
+  id        String   @id @default(cuid())
+  title     String
+  category  String   @default("Général")
+  body      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("canned_responses")
+}
+
+/// Couriers managed by the logistics team. Credentials are encrypted at rest.
+model Courier {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  logoUrl     String?
+  apiEndpoint String?
+  apiKey      String?
+  apiSecret   String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("couriers")
+}
+
+/// Per-wilaya overrides owned by the regional manager.
+model WilayaSettings {
+  wilayaCode         Int      @id
+  wilaya             Wilaya   @relation(fields: [wilayaCode], references: [code], onDelete: Cascade)
+  displayName        String?
+  shippingSurcharge  Float    @default(0)
+  autoApproveSellers Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+
+  @@map("wilaya_settings")
+}
+
+/// Login audit trail; also backs the "sign out everywhere" control.
+model LoginEvent {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  userAgent String?
+  success   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([profileId, createdAt])
+  @@map("login_events")
 }

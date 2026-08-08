@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/api-auth";
 import { round2 } from "@/lib/utils";
+import { getSettings } from "@/lib/settings";
 
-const VAT_RATE = 0.19;
-const VARIANCE_FLAG_THRESHOLD = 0.005; // 0.5%
+
 
 /**
  * ACCOUNTANT/ADMIN treasury view.
@@ -14,6 +14,14 @@ const VARIANCE_FLAG_THRESHOLD = 0.005; // 0.5%
 export async function GET() {
   const { error } = await requireRole(["ACCOUNTANT", "ADMIN"]);
   if (error) return error;
+
+  // VAT rate and the flagging tolerance are both accountant-configurable.
+  const [fiscal, reconSettings] = await Promise.all([
+    getSettings("fiscal"),
+    getSettings("reconciliation"),
+  ]);
+  const VAT_RATE = fiscal.vatRate / 100;
+  const VARIANCE_FLAG_THRESHOLD = reconSettings.codTolerancePct / 100;
 
   const [delivered, pendingPayouts, commissions, shipments] = await Promise.all([
     prisma.shipment.aggregate({
@@ -66,7 +74,7 @@ export async function GET() {
         flagged: ratio > VARIANCE_FLAG_THRESHOLD,
       };
     })
-    .filter((s) => s.flagged);
+    .filter((s) => s.flagged && reconSettings.autoFlagDiscrepancies);
 
   const commissionMap = Object.fromEntries(
     commissions.map((c) => [c.type, c._sum.amount ?? 0])

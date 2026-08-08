@@ -2,6 +2,7 @@ import prisma from './prisma'
 import { trackServerEvent } from './pixel'
 import { broadcast } from './realtime'
 import { notify, templates } from './notifications'
+import { getSettings } from './settings'
 
 export class FulfillmentError extends Error {
   constructor(message: string, public status: number = 400) {
@@ -48,12 +49,15 @@ export async function completeDelivery({
 
   const { order, seller } = shipment
 
-  // 2. Calculate Commission
-  const totalCommission = order.totalAmount * (seller.commissionRate / 100) // e.g., 10%
-  const ownerShare = totalCommission * 0.8 // 8%
-  const managerShare = totalCommission * 0.2 // 2%
+  // 2. Calculate Commission. The 80/20 split is configurable by the admin in
+  // /dashboard/admin/settings; the API enforces that the two shares total 100%.
+  const { ownerShare: ownerPct, managerShare: managerPct } = await getSettings('general')
+  const totalCommission = order.totalAmount * (seller.commissionRate / 100)
+  const ownerShare = totalCommission * (ownerPct / 100)
+  const managerShare = totalCommission * (managerPct / 100)
   const shippingFee = shipment.shippingFee || 0
   const payoutAmount = order.totalAmount - totalCommission - shippingFee
+  const { loyaltyPoints: loyaltyEnabled } = await getSettings('features')
 
   // 3-5. Update shipment + order + money movements atomically.
   const updatedShipment = await prisma.$transaction(async (tx) => {
@@ -121,8 +125,9 @@ export async function completeDelivery({
       data: { balance: { increment: payoutAmount } },
     })
 
-    // 6. Add Loyalty Points (1pt per 100 DZD)
-    if (order.buyerId) {
+    // 6. Add Loyalty Points (1pt per 100 DZD) — skipped when the admin has
+    // switched the loyalty module off.
+    if (order.buyerId && loyaltyEnabled) {
       const pointsToAdd = Math.floor(order.totalAmount / 100)
       if (pointsToAdd > 0) {
         await tx.loyaltyPoints.upsert({
@@ -216,8 +221,9 @@ export async function failDelivery({
   if (shipment.agentId && shipment.agentId !== agentId)
     throw new FulfillmentError('Shipment is assigned to another agent', 403)
 
+  const { maxDeliveryAttempts } = await getSettings('shipping')
   const attemptCount = shipment.attemptCount + 1
-  const exhausted = attemptCount >= MAX_DELIVERY_ATTEMPTS
+  const exhausted = attemptCount >= maxDeliveryAttempts
 
   const nextDay = new Date()
   nextDay.setDate(nextDay.getDate() + 1)
