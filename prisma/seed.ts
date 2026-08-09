@@ -118,6 +118,122 @@ async function main() {
   })
   console.log(`✅ Created Admin user: admin@zeem.dz`)
 
+  // 3b. Demo accounts, one per role, so every dashboard is reachable
+  //     immediately after seeding. Delete this block for a production install.
+  const demoPassword = await bcrypt.hash('ZeemDemo123', 10)
+  const demoStaff: {
+    email: string
+    phone: string
+    fullName: string
+    role: 'WILAYA_MANAGER' | 'SELLER' | 'ACCOUNTANT' | 'AGENT' | 'ERP_MANAGER' | 'LOGISTICS_MANAGER' | 'SUPPORT' | 'BUYER'
+    wilayaCode?: number
+  }[] = [
+    { email: 'manager@zeem.dz', phone: '+21355000001', fullName: 'Amine Manager', role: 'WILAYA_MANAGER', wilayaCode: 16 },
+    { email: 'seller@zeem.dz', phone: '+21355000002', fullName: 'Karim Vendeur', role: 'SELLER' },
+    { email: 'agent@zeem.dz', phone: '+21355000003', fullName: 'Yacine Livreur', role: 'AGENT', wilayaCode: 16 },
+    { email: 'accountant@zeem.dz', phone: '+21355000004', fullName: 'Salima Comptable', role: 'ACCOUNTANT' },
+    { email: 'erp@zeem.dz', phone: '+21355000005', fullName: 'Nadia Catalogue', role: 'ERP_MANAGER' },
+    { email: 'logistics@zeem.dz', phone: '+21355000006', fullName: 'Sofiane Logistique', role: 'LOGISTICS_MANAGER' },
+    { email: 'support@zeem.dz', phone: '+21355000007', fullName: 'Lina Support', role: 'SUPPORT' },
+    { email: 'buyer@zeem.dz', phone: '+21355000008', fullName: 'Nour Acheteuse', role: 'BUYER' },
+  ]
+
+  const created: Record<string, string> = {}
+  for (const d of demoStaff) {
+    const profile = await prisma.profile.create({
+      data: {
+        userId: `demo-${d.role.toLowerCase()}`,
+        email: d.email,
+        phone: d.phone,
+        passwordHash: demoPassword,
+        fullName: d.fullName,
+        role: d.role,
+        wilayaCode: d.wilayaCode,
+        isVerified: true,
+      },
+    })
+    created[d.role] = profile.id
+  }
+  console.log(`✅ Created ${demoStaff.length} demo users (mot de passe : ZeemDemo123)`)
+
+  // 3c. An approved demo store with products, so the storefront is not empty
+  //     and the whole order → delivery → commission flow can be exercised.
+  const store = await prisma.store.create({
+    data: {
+      userId: created.SELLER,
+      name: 'Boutique El Djazaïr',
+      slug: 'boutique-el-djazair',
+      description: 'Produits locaux de qualité, livrés dans les 58 wilayas.',
+      wilayaCode: 16,
+      address: 'Rue Didouche Mourad, Alger Centre',
+      isActive: true,
+      approvedBy: created.WILAYA_MANAGER,
+      rib: '00799999000123456789',
+      commissionRate: 10,
+    },
+  })
+
+  const demoProducts = [
+    {
+      name: 'Djellaba traditionnelle',
+      slug: 'djellaba-traditionnelle',
+      category: 'Mode',
+      description: 'Djellaba artisanale en coton, confectionnée à la main.',
+      variants: [
+        { sku: 'DJL-M-BLC', size: 'M', color: 'Blanc', price: 4500, stock: 20 },
+        { sku: 'DJL-L-BLC', size: 'L', color: 'Blanc', price: 4500, stock: 15 },
+        { sku: 'DJL-M-BLE', size: 'M', color: 'Bleu', price: 4800, stock: 10 },
+      ],
+    },
+    {
+      name: 'Écouteurs sans fil Pro',
+      slug: 'ecouteurs-sans-fil-pro',
+      category: 'Électronique',
+      description: 'Bluetooth 5.3, autonomie 30h, réduction de bruit active.',
+      variants: [
+        { sku: 'ECT-NOIR', size: null, color: 'Noir', price: 6500, stock: 40 },
+        { sku: 'ECT-BLANC', size: null, color: 'Blanc', price: 6500, stock: 35 },
+      ],
+    },
+    {
+      name: "Huile d'argan pure 100 ml",
+      slug: 'huile-argan-pure-100ml',
+      category: 'Beauté',
+      description: "Huile d'argan 100% naturelle, pressée à froid.",
+      variants: [{ sku: 'ARG-100', size: '100 ml', color: null, price: 1800, stock: 60 }],
+    },
+    {
+      name: 'Service à café en céramique',
+      slug: 'service-cafe-ceramique',
+      category: 'Maison',
+      description: 'Service 12 pièces, motif traditionnel algérien.',
+      variants: [{ sku: 'CAF-12P', size: '12 pièces', color: null, price: 3200, stock: 25 }],
+    },
+  ]
+
+  for (const p of demoProducts) {
+    await prisma.product.create({
+      data: {
+        storeId: store.id,
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        category: p.category,
+        isPublished: true,
+        variants: {
+          create: p.variants.map((v) => ({
+            sku: v.sku,
+            attributes: { size: v.size, color: v.color },
+            price: v.price,
+            stockQuantity: v.stock,
+            lowStockThreshold: 5,
+          })),
+        },
+      },
+    })
+  }
+  console.log(`✅ Created demo store + ${demoProducts.length} products`)
+
   // 4. Create Default Shipping Rates for ALL Wilayas
   const couriers = ['YALIDINE', 'ZR_EXPRESS', 'POSTE']
   const allWilayas = await prisma.wilaya.findMany()

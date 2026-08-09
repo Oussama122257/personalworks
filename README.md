@@ -97,9 +97,14 @@ A typical layout is three terminal tabs: PostgreSQL, `npm run dev`, and
 ### Verifying
 
 ```bash
-pg_isready                                            # accepting connections
-psql -d zeem_db -c "SELECT count(*) FROM wilayas;"    # 58
+npm run db:check
 ```
+
+This checks the whole chain in the order it actually breaks: `.env` and
+`.env.local` agreeing on `DATABASE_URL`, the database being reachable,
+migrations applied, seed data present, and finally whether the admin password
+really validates against the stored hash. It reads `.env.local` — the same file
+Next.js uses — so it tests the database the app will actually query.
 
 ### Troubleshooting
 
@@ -109,21 +114,35 @@ psql -d zeem_db -c "SELECT count(*) FROM wilayas;"    # 58
 | `Environment variable not found: DATABASE_URL` | Running a Prisma command without `.env` present. |
 | `Can't reach database server at localhost:5432` | PostgreSQL is not running: `brew services start postgresql@16`. |
 | `postmaster.pid already exists` / `address already in use` | An instance is already running — usually the brew service. Stop it, or skip the foreground tab. |
-| Storefront shows no products | Expected on a fresh install: the seed creates no products. Register a seller, approve the store, then add products. |
+| `Identifiants invalides` at login | Run `npm run db:check` — it names the cause. Most often `.env` and `.env.local` point at different databases, so the seed populated one and the app reads the other. |
+| Env change seems ignored | Next.js reads env vars only at startup. Stop the dev server (Ctrl+C) and run `npm run dev` again. |
 
-### After seeding
-
-The seed creates the geography and **one** account:
+### Logins created by the seed
 
 | Role | Email | Password |
 |---|---|---|
 | Admin | `admin@zeem.dz` | `ZeemAdmin123` |
+| Wilaya Manager (Alger, 16) | `manager@zeem.dz` | `ZeemDemo123` |
+| Seller | `seller@zeem.dz` | `ZeemDemo123` |
+| Delivery Agent (Alger, 16) | `agent@zeem.dz` | `ZeemDemo123` |
+| Accountant | `accountant@zeem.dz` | `ZeemDemo123` |
+| ERP Manager | `erp@zeem.dz` | `ZeemDemo123` |
+| Logistics Manager | `logistics@zeem.dz` | `ZeemDemo123` |
+| Customer Support | `support@zeem.dz` | `ZeemDemo123` |
+| Buyer | `buyer@zeem.dz` | `ZeemDemo123` |
 
-Sign in as the admin, then create staff (wilaya managers, delivery agents,
-accountants) from the admin dashboard's **Nouveau membre** button, which posts to
-`POST /api/admin/users`. Sellers self-register at `/login` → *Inscription* →
-*Vendeur*; their store starts inactive and a wilaya manager approves it before
-they can publish products.
+Sign in with the email **or** the phone number — the form accepts either.
+
+The seed also creates an approved demo store (« Boutique El Djazaïr », Alger)
+with four published products, so the storefront is populated and the full
+order → delivery → commission flow works immediately.
+
+**Before going to production, delete the demo block in `prisma/seed.ts`** —
+it is marked with a comment — and change the admin password.
+
+Additional staff can be created from the admin dashboard's **Nouveau membre**
+button. Sellers self-register at `/login` → *Inscription* → *Vendeur*; their
+store starts inactive and a wilaya manager approves it before they can publish.
 
 ## Database layer
 
