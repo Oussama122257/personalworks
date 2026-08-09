@@ -106,8 +106,14 @@ async function main() {
     ok("Connexion réussie");
   } catch (err) {
     bad(`Connexion impossible : ${err instanceof Error ? err.message.split("\n")[0] : err}`);
+    // Naming the port that was tried makes a non-default port obvious.
+    const target = /@([^/:]+):(\d+)\//.exec(localDb!);
+    if (target) {
+      fix(`L'application a essayé ${target[1]} sur le port ${target[2]}.`);
+      fix(`Vérifiez le port réel : psql -c "SHOW port;"`);
+      fix("S'il diffère, corrigez-le dans .env ET .env.local.");
+    }
     fix("PostgreSQL est-il démarré ? (brew services start postgresql@16)");
-    fix("Les identifiants dans DATABASE_URL sont-ils corrects ?");
     await prisma.$disconnect();
     process.exit(1);
   }

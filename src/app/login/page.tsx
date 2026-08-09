@@ -48,7 +48,19 @@ function LoginForm() {
     });
     setLoading(false);
     if (res?.error) {
-      toast.error("Identifiants invalides");
+      // NextAuth reports a rejected password as "CredentialsSignin"; anything
+      // else (typically "Configuration") means the server could not complete
+      // the check at all — most often an unreachable database. Reporting both
+      // as "invalid credentials" sends people hunting for a password problem
+      // that does not exist.
+      if (res.error === "CredentialsSignin") {
+        toast.error("Identifiants invalides");
+      } else {
+        toast.error(
+          "Connexion au serveur impossible — vérifiez la base de données (npm run db:check)",
+          { duration: 8000 }
+        );
+      }
       return;
     }
     toast.success("Connexion réussie");
