@@ -77,6 +77,27 @@ async function main() {
     ok("Les deux fichiers pointent vers la même base");
   }
 
+  // DIRECT_URL is what `prisma migrate` uses. It only has to differ from
+  // DATABASE_URL on a pooled host such as Neon or Supabase.
+  const directUrl = readEnvVar(".env", "DIRECT_URL");
+  if (!directUrl) {
+    bad(".env ne contient pas DIRECT_URL");
+    fix("Les migrations en ont besoin. En local, copiez la valeur de DATABASE_URL.");
+    fatal = true;
+  } else {
+    const pooled = /-pooler\./.test(envDb ?? "");
+    const directIsPooled = /-pooler\./.test(directUrl);
+    if (directIsPooled) {
+      bad("DIRECT_URL pointe vers le pooler (-pooler) — les migrations échoueront");
+      fix("Utilisez la chaîne « unpooled / direct » fournie par votre hébergeur.");
+      fatal = true;
+    } else if (pooled) {
+      ok("DATABASE_URL est poolée, DIRECT_URL est directe — configuration correcte");
+    } else {
+      ok("DIRECT_URL est défini");
+    }
+  }
+
   const secret = readEnvVar(".env.local", "NEXTAUTH_SECRET");
   if (!secret) {
     bad("NEXTAUTH_SECRET est absent de .env.local");

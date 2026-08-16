@@ -65,8 +65,12 @@ npm install     # postinstall runs `prisma generate` for you
 
 | File | Read by | Contains |
 |---|---|---|
-| `.env` | Prisma CLI (`migrate`, `db seed`, `studio`) | `DATABASE_URL` only |
-| `.env.local` | the Next.js app | `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, optional keys |
+| `.env` | Prisma CLI (`migrate`, `db seed`, `studio`) | `DATABASE_URL`, `DIRECT_URL` |
+| `.env.local` | the Next.js app | `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, optional keys |
+
+`DIRECT_URL` is the non-pooled connection used by migrations. On a local
+PostgreSQL keep it identical to `DATABASE_URL`; see the Neon section for when
+the two differ.
 
 Generate a real auth secret and paste it into `NEXTAUTH_SECRET` in `.env.local`
 — the committed placeholder will not work:
@@ -94,6 +98,45 @@ npm run dev                  # http://localhost:3000
 A typical layout is three terminal tabs: PostgreSQL, `npm run dev`, and
 `npx prisma studio` (a database browser on `localhost:5555`).
 
+### Using Neon instead of a local PostgreSQL
+
+Neon is hosted Postgres, so you skip steps 1 and 2 entirely — nothing runs on
+your machine and no `createdb` is needed. Only the connection strings change.
+
+1. Create a project at [neon.tech](https://neon.tech). On the dashboard's
+   **Connection Details** panel, copy **both** strings:
+   - the **pooled** one (host contains `-pooler`) → `DATABASE_URL`
+   - the **direct / unpooled** one (no `-pooler`) → `DIRECT_URL`
+
+2. Put them in **both** `.env` and `.env.local`:
+
+```
+DATABASE_URL="postgresql://USER:PASSWORD@ep-xxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require"
+DIRECT_URL="postgresql://USER:PASSWORD@ep-xxx.REGION.aws.neon.tech/neondb?sslmode=require"
+```
+
+3. Then the normal steps — no local database required:
+
+```bash
+npm install
+npx prisma migrate deploy
+npm run db:seed
+npm run dev
+```
+
+**Why two URLs.** Neon's pooler runs PgBouncer in transaction mode, which
+breaks the advisory locks and prepared statements `prisma migrate` depends on.
+The schema declares `directUrl`, so migrations use the direct connection while
+the running app uses the pooled one. Pointing `DIRECT_URL` at the `-pooler`
+host produces confusing migration failures — `npm run db:check` detects and
+reports exactly that.
+
+Keep `?sslmode=require`; Neon refuses plaintext connections. If your password
+contains `@ : / ?` or `#`, URL-encode it.
+
+Neon free-tier projects suspend after a few minutes idle, so the first request
+after a pause takes a second or two while the compute wakes.
+
 ### Verifying
 
 ```bash
@@ -116,6 +159,8 @@ Next.js uses — so it tests the database the app will actually query.
 | `postmaster.pid already exists` / `address already in use` | An instance is already running — usually the brew service. Stop it, or skip the foreground tab. |
 | `Identifiants invalides` at login | Run `npm run db:check` — it names the cause. Most often `.env` and `.env.local` point at different databases, so the seed populated one and the app reads the other. |
 | Env change seems ignored | Next.js reads env vars only at startup. Stop the dev server (Ctrl+C) and run `npm run dev` again. |
+| `Environment variable not found: DIRECT_URL` | Add `DIRECT_URL` to `.env` — same value as `DATABASE_URL` locally. |
+| Migration hangs or errors on Neon/Supabase | `DIRECT_URL` is pointing at the pooled host. Use the unpooled string. |
 
 ### Logins created by the seed
 

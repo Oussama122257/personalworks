@@ -4,7 +4,14 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Runtime queries. On a pooled host (Neon, Supabase) point this at the
+  // POOLED connection string.
   url      = env("DATABASE_URL")
+  // Migrations and introspection. Connection poolers run PgBouncer in
+  // transaction mode, which breaks the advisory locks and prepared statements
+  // `prisma migrate` relies on, so it needs a DIRECT connection. On a local
+  // PostgreSQL set this to the same value as DATABASE_URL.
+  directUrl = env("DIRECT_URL")
 }
 
 // ------------------- CORE USERS & ROLES -------------------
